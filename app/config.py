@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,8 +16,11 @@ class Settings(BaseSettings):
     JWT_SECRET: str
     JWT_ALGORITHM: str = "HS256"
 
-    # AI provider (strategy selection)
-    AI_PROVIDER: str = "gemini"
+    # AI provider (strategy selection) - "adk" migrates gerar_questionario/
+    # planejar_modulos to Google ADK with a Pydantic output_schema (Fase 1 of
+    # the ADK migration); everything else still runs through GeminiProvider
+    # under the hood either way. "gemini" is kept as an instant rollback.
+    AI_PROVIDER: Literal["gemini", "adk"] = "gemini"
     GEMINI_API_KEY: str
     GEMINI_MODEL_CONTEUDO: str = "gemini-2.5-flash"
     GEMINI_MODEL_QUESTIONARIO: str = "gemini-2.5-flash"
