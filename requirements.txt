@@ -1,0 +1,10 @@
+fastapi>=0.115,<0.116
+uvicorn[standard]>=0.30,<0.31
+sqlalchemy>=2.0,<2.1
+psycopg[binary]>=3.2,<3.3
+alembic>=1.13,<1.14
+pydantic>=2.7,<3.0
+pydantic-settings>=2.3,<3.0
+pyjwt>=2.8,<3.0
+google-genai>=0.3,<0.4
+tenacity>=8.2,<9.0
