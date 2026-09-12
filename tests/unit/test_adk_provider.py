@@ -1,20 +1,33 @@
-"""Unit tests for `AdkProvider` (Fases 1-2 of the ADK migration): the
-`gerar_questionario`/`planejar_modulos` output-schema methods and the
-`gerar_conteudo_modulo`/`buscar_fontes` plain-text/grounded methods, mocked at
-the `_run_single_turn`/`_run_single_turn_full` seam so no real ADK
-`Runner`/Gemini call happens. The three not-yet-migrated methods (needing a
-persistent, multi-turn `SessionService` - Fase 3) are covered by proving they
-delegate to the internal `GeminiProvider` instance untouched.
+"""Unit tests for `AdkProvider` (Fases 1-3 of the ADK migration):
+`gerar_questionario`/`planejar_modulos` (output-schema) and
+`gerar_conteudo_modulo`/`buscar_fontes` (plain-text/grounded), mocked at the
+`_run_single_turn`/`_run_single_turn_full` seam so no real ADK `Runner`/
+Gemini call happens; and `conversar_com_ferramentas`/`obter_historico_sessao`
+(the admin agent, Fase 3), mocked at the `Runner.run_async`/session-service
+seam. The two not-yet-migrated student-chat methods are covered by proving
+they delegate to the internal `GeminiProvider` instance untouched.
 """
 
-from unittest.mock import patch
+import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from google.adk.agents.invocation_context import LlmCallsLimitExceededError
 
 from app.ai.adk_provider import AdkProvider
-from app.ai.schemas import ConteudoGerado, FonteEncontrada, PlanoModulos, QuestionarioGerado
+from app.ai.schemas import (
+    ConteudoGerado,
+    FerramentaContexto,
+    FonteEncontrada,
+    MensagemAgente,
+    PlanoModulos,
+    QuestionarioGerado,
+)
 from app.config import Settings
-from app.core.exceptions import ProvedorIAIndisponivelException
+from app.core.exceptions import (
+    AgenteLimiteExcedidoException,
+    ProvedorIAIndisponivelException,
+)
 
 
 def _settings() -> Settings:
@@ -179,14 +192,109 @@ def test_metodos_nao_migrados_delegam_para_gemini_provider(provider, metodo, arg
     assert resultado == "ok"
 
 
-def test_conversar_com_ferramentas_delega_para_gemini_provider(provider):
-    with patch.object(
-        provider._gemini, "conversar_com_ferramentas", return_value="ok"
-    ) as mock_metodo:
-        resultado = provider.conversar_com_ferramentas([], [])
+def _fake_event(*, texto: str | None = None, error_message: str | None = None):
+    evento = MagicMock()
+    evento.error_message = error_message
+    evento.is_final_response.return_value = texto is not None
+    if texto is not None:
+        parte = MagicMock()
+        parte.text = texto
+        evento.content = MagicMock(parts=[parte])
+    else:
+        evento.content = None
+    return evento
 
-    mock_metodo.assert_called_once()
-    assert resultado == "ok"
+
+def _ctx(conversa_id=None) -> FerramentaContexto:
+    return FerramentaContexto(
+        materia_repo=MagicMock(),
+        tema_repo=MagicMock(),
+        modulo_repo=MagicMock(),
+        questionario_repo=MagicMock(),
+        ai_provider=MagicMock(),
+        pool_size=12,
+        conversa_id=conversa_id or uuid.uuid4(),
+    )
+
+
+def test_conversar_com_ferramentas_roda_loop_nativo_e_retorna_texto_final(provider):
+    provider._agente_session_service.get_session = AsyncMock(return_value=None)
+    provider._agente_session_service.create_session = AsyncMock()
+
+    async def _fake_run_async(*args, **kwargs):
+        yield _fake_event(texto="Feito!")
+
+    with patch("app.ai.adk_provider.Runner.run_async", _fake_run_async):
+        resultado = provider.conversar_com_ferramentas(
+            [MensagemAgente(papel="user", conteudo="crie uma matéria de Física")], _ctx()
+        )
+
+    assert resultado == "Feito!"
+
+
+def test_conversar_com_ferramentas_propaga_erro_do_evento(provider):
+    provider._agente_session_service.get_session = AsyncMock(return_value=None)
+    provider._agente_session_service.create_session = AsyncMock()
+
+    async def _fake_run_async(*args, **kwargs):
+        yield _fake_event(error_message="modelo indisponível")
+
+    with patch("app.ai.adk_provider.Runner.run_async", _fake_run_async):
+        with pytest.raises(ProvedorIAIndisponivelException):
+            provider.conversar_com_ferramentas(
+                [MensagemAgente(papel="user", conteudo="oi")], _ctx()
+            )
+
+
+def test_conversar_com_ferramentas_cap_de_iteracoes_vira_agente_limite_excedido(provider):
+    provider._agente_session_service.get_session = AsyncMock(return_value=None)
+    provider._agente_session_service.create_session = AsyncMock()
+
+    async def _fake_run_async(*args, **kwargs):
+        raise LlmCallsLimitExceededError("limite excedido")
+        yield  # pragma: no cover - makes this an async generator
+
+    with patch("app.ai.adk_provider.Runner.run_async", _fake_run_async):
+        with pytest.raises(AgenteLimiteExcedidoException):
+            provider.conversar_com_ferramentas(
+                [MensagemAgente(papel="user", conteudo="oi")], _ctx()
+            )
+
+
+def test_obter_historico_sessao_sem_sessao_retorna_none(provider):
+    provider._agente_session_service.get_session = AsyncMock(return_value=None)
+
+    assert provider.obter_historico_sessao(uuid.uuid4()) is None
+
+
+def test_obter_historico_sessao_traduz_eventos(provider):
+    evento_usuario = MagicMock()
+    evento_usuario.author = "user"
+    evento_usuario.content = MagicMock(parts=[MagicMock(text="crie uma matéria de Física")])
+    evento_usuario.get_function_calls.return_value = []
+    evento_usuario.get_function_responses.return_value = []
+    evento_usuario.id = "ev1"
+    evento_usuario.timestamp = 1700000000.0
+
+    evento_assistente = MagicMock()
+    evento_assistente.author = "agente_admin_agent"
+    evento_assistente.content = MagicMock(parts=[MagicMock(text="Feito!")])
+    evento_assistente.get_function_calls.return_value = []
+    evento_assistente.get_function_responses.return_value = []
+    evento_assistente.id = "ev2"
+    evento_assistente.timestamp = 1700000001.0
+
+    sessao = MagicMock(events=[evento_usuario, evento_assistente])
+    provider._agente_session_service.get_session = AsyncMock(return_value=sessao)
+
+    historico = provider.obter_historico_sessao(uuid.uuid4())
+
+    assert historico is not None
+    assert len(historico) == 2
+    assert historico[0].papel == "user"
+    assert historico[0].conteudo == "crie uma matéria de Física"
+    assert historico[1].papel == "assistant"
+    assert historico[1].conteudo == "Feito!"
 
 
 def test_questionario_schema_invalido_por_pydantic_e_reportado(provider):
