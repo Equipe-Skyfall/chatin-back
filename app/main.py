@@ -33,3 +33,9 @@ app.include_router(xp.router)
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.api_route("/", methods=["GET", "HEAD"])
+def root() -> dict[str, str]:
+    """Used by uptime pingers to keep the Render free instance from sleeping."""
+    return {"status": "ok"}

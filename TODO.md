@@ -109,6 +109,70 @@ implementados e verificados ao vivo contra o banco real para tudo marcado ✅.
 
 ---
 
+## Performance - revisar antes de escalar (2026-09-12)
+
+Nada disto é urgente hoje - a filosofia "sempre computado, nunca cacheado"
+(XP, progresso, dificuldade) é deliberada e correta para consistência a este
+volume. Mas cada item abaixo cresce em custo com uso real, em graus
+diferentes. Em ordem de prioridade:
+
+1. **Regeneração em lote trava a requisição HTTP por minutos.**
+   `dividir_tema_em_modulos` e `regenerar_questionarios_tema` fazem várias
+   chamadas de IA sequenciais dentro de uma única request. Já observamos
+   2m38s ao vivo para regenerar 5 módulos. A maioria de gateways/load
+   balancers (inclusive o que ficaria na frente de um serviço no Render) tem
+   timeout de request bem menor que isso - mais alguns módulos, ou uma
+   resposta mais lenta da Gemini, e a requisição falha mesmo com o backend
+   ainda processando. **Fix**: mover para um job em background (mínimo:
+   `BackgroundTasks` do FastAPI; ideal: uma fila de verdade tipo Arq/Celery
+   que sobrevive a um restart) com um endpoint de status para o admin
+   consultar, em vez de bloquear a request.
+
+2. **Dificuldade das questões: recomputada toda vez, e sem índice adequado.**
+   `QuestionarioRepository.estatisticas_por_questao` roda a cada início de
+   tentativa. Além de ser recalculada sempre (como você já apontou),
+   confirmei que `respostas_tentativa.questao_id` **não tem índice próprio**
+   - só existe um índice composto `(tentativa_id, questao_id)` com
+   `tentativa_id` como coluna líder, que não ajuda uma busca filtrando só por
+   `questao_id`. Conforme a tabela cresce, essa query tende a scan completo.
+   **Fix**: adicionar índice em `questao_id`, e mover o cálculo para um job
+   periódico (cron) que grava um valor de dificuldade já pronto para leitura
+   - exatamente a ideia que você propôs.
+
+3. **`GET /progresso` tem um N+1 e recarrega o currículo inteiro sempre.**
+   Duas coisas na mesma rota: (a) um loop Python chama
+   `xp_repo.total_por_usuario_e_materia` uma vez PARA CADA matéria do
+   sistema - uma query separada por matéria, clássico N+1, devia ser uma
+   única query `GROUP BY materia_id`; (b) a rota sempre carrega a árvore
+   inteira do currículo (toda matéria → tema → módulo) pra calcular o
+   progresso de um único usuário, mesmo que ele só tenha tocado uma fração
+   dela. Conforme o currículo cresce, a rota fica mais lenta pra todo mundo,
+   até pra quem mal começou.
+
+4. **Ranking global é o problema clássico de leaderboard.**
+   `GET /ranking` faz `GROUP BY user_id ORDER BY SUM(xp) DESC LIMIT N` sobre
+   a tabela inteira de `xp_eventos` - o `LIMIT` não reduz o custo de
+   agregação, só o tamanho do resultado. Tranquilo no volume atual; em escala
+   real, leaderboards normalmente viram um snapshot materializado
+   periodicamente (recalculado a cada alguns minutos) em vez de agregado ao
+   vivo a cada request - mesmo tipo de solução do item 2.
+
+5. **`GET /chat/resumos` chama a IA em loop, sequencialmente.**
+   Mesmo formato do item 1, em escala menor: se várias conversas do aluno
+   ficaram desatualizadas ao mesmo tempo, o endpoint chama a Gemini uma vez
+   por conversa, uma atrás da outra, dentro da mesma request.
+
+6. **Escala horizontal (múltiplas instâncias) - não é urgente, só ficar de olho.**
+   Cada processo/instância tem seu próprio pool de conexões do SQLAlchemy
+   (`pool_size` padrão = 5). Ok pra uma instância no Render; se algum dia
+   escalar para várias, vale checar contra o limite de conexões do Supabase.
+
+7. **Cota da API do Gemini - fora do nosso controle.**
+   Com uso real, o limite passa a ser o rate limit do Google, não o nosso
+   código. O retry (`_retry_transient`/`_retry_agente`) já lida bem com
+   falhas transitórias; volume alto sustentado é conversa de aumentar cota
+   com o Google, não fix de código.
+
 ## Limitações conhecidas (decisões conscientes, não bugs)
 - **Sem teste de nivelamento/diagnóstico**: todo aluno entra numa matéria no
   mesmo ponto fixo (primeiro tema/módulo por `ordem`); não há como pular
