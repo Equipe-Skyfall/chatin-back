@@ -1,7 +1,7 @@
 """Concrete `AIProvider` strategy backed by the Google Agent Development Kit
-(`google-adk`) - Fase 1 of the ADK migration (see the migration plan).
+(`google-adk`) - Fases 1-2 of the ADK migration (see the migration plan).
 
-Only `gerar_questionario` and `planejar_modulos` run through ADK so far, using
+Fase 1: `gerar_questionario` and `planejar_modulos` run through ADK using
 `LlmAgent(output_schema=<pydantic model>)` (`app/ai/adk_schemas.py`) in place
 of Gemini's own uppercase-typed JSON schema dialect (`gemini_schemas.py`) and
 the manual `json.loads` + retry-with-reinforcement-prompt parsing that lived
@@ -10,8 +10,15 @@ construction (including the "exactly 5 alternatives" constraint, via
 Pydantic's `Field(min_length=5, max_length=5)`), so there is no retry-on-
 malformed-output path here.
 
-The remaining five `AIProvider` methods still delegate, by composition, to an
-internal `GeminiProvider` instance - they migrate in later phases. This keeps
+Fase 2: `gerar_conteudo_modulo` (plain text) and `buscar_fontes` (grounded via
+the ADK's builtin `google_search` tool) also run through ADK now - both are
+still single-turn (one prompt, one response), so they reuse the same
+throwaway-session helper as Fase 1, just without an `output_schema`.
+
+The remaining three `AIProvider` methods still delegate, by composition, to
+an internal `GeminiProvider` instance - `conversar_com_ferramentas` and the
+student-chat methods (`responder_pergunta_aluno`/`resumir_conversa`) need a
+persistent, multi-turn `SessionService`, which is Fase 3's scope. This keeps
 `AI_PROVIDER=adk` fully functional in production from Fase 1 onward, with
 `AI_PROVIDER=gemini` remaining available as an instant rollback.
 """
@@ -21,6 +28,7 @@ import logging
 
 from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
+from google.adk.tools import google_search
 from google.genai import types as genai_types
 from pydantic import ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -28,7 +36,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from app.ai.adk_schemas import PlanoModulosSchema, QuestionarioSchema
 from app.ai.base import AIProvider
 from app.ai.gemini_provider import GeminiProvider
-from app.ai.prompts import prompt_gerar_questionario, prompt_planejar_modulos
+from app.ai.prompts import (
+    prompt_buscar_fontes,
+    prompt_gerar_conteudo_modulo,
+    prompt_gerar_questionario,
+    prompt_planejar_modulos,
+)
 from app.ai.schemas import (
     AlternativaGerada,
     ConteudoGerado,
@@ -73,16 +86,31 @@ class AdkProvider(AIProvider):
             instruction="Você planeja trilhas de estudo dividindo temas em módulos.",
             output_schema=PlanoModulosSchema,
         )
+        self._conteudo_agent = LlmAgent(
+            name="conteudo_agent",
+            model=settings.GEMINI_MODEL_CONTEUDO,
+            instruction="Você é um professor gerando material didático.",
+        )
+        self._fontes_agent = LlmAgent(
+            name="fontes_agent",
+            model=settings.GEMINI_MODEL_SEARCH,
+            instruction="Você é um assistente de pesquisa educacional.",
+            tools=[google_search],
+        )
 
     # --- single-turn ADK invocation helper ---
 
     @staticmethod
-    def _run_single_turn(agent: LlmAgent, prompt: str) -> str:
+    def _run_single_turn_full(
+        agent: LlmAgent, prompt: str
+    ) -> tuple[str, genai_types.GroundingMetadata | None]:
         """Runs one single-turn invocation of `agent` against `prompt` in a
         throwaway in-memory session, and returns the final response text (the
-        schema-validated JSON, when `agent.output_schema` is set)."""
+        schema-validated JSON, when `agent.output_schema` is set) along with
+        any grounding metadata attached to that final event (set when `agent`
+        has the `google_search` tool, `None` otherwise)."""
 
-        async def _run() -> str:
+        async def _run() -> tuple[str, genai_types.GroundingMetadata | None]:
             runner = InMemoryRunner(agent=agent, app_name=_APP_NAME)
             session = await runner.session_service.create_session(
                 app_name=_APP_NAME, user_id=_USER_ID
@@ -91,6 +119,7 @@ class AdkProvider(AIProvider):
                 role="user", parts=[genai_types.Part.from_text(text=prompt)]
             )
             texto_final = ""
+            grounding: genai_types.GroundingMetadata | None = None
             async for event in runner.run_async(
                 user_id=_USER_ID, session_id=session.id, new_message=content
             ):
@@ -98,13 +127,20 @@ class AdkProvider(AIProvider):
                     raise ProvedorIAIndisponivelException(
                         f"Falha no agente ADK '{agent.name}': {event.error_message}"
                     )
+                if event.grounding_metadata is not None:
+                    grounding = event.grounding_metadata
                 if event.is_final_response() and event.content and event.content.parts:
                     texto_final = "".join(
                         part.text for part in event.content.parts if part.text
                     )
-            return texto_final
+            return texto_final, grounding
 
         return asyncio.run(_run())
+
+    @staticmethod
+    def _run_single_turn(agent: LlmAgent, prompt: str) -> str:
+        texto, _grounding = AdkProvider._run_single_turn_full(agent, prompt)
+        return texto
 
     # --- output-schema methods (Fase 1) ---
 
@@ -188,13 +224,45 @@ class AdkProvider(AIProvider):
         `GeminiProvider._linha_unica`, same rendering requirement downstream."""
         return " ".join(texto.split())
 
-    # --- not yet migrated: delegate to GeminiProvider (Fases 2-3) ---
+    # --- text-generation methods (Fase 2) ---
 
+    @_retry_transient
     def buscar_fontes(
         self, tema_titulo: str, tema_descricao: str | None, direcionamento: str | None = None
     ) -> list[FonteEncontrada]:
-        return self._gemini.buscar_fontes(tema_titulo, tema_descricao, direcionamento)
+        prompt = prompt_buscar_fontes(tema_titulo, tema_descricao, direcionamento)
+        try:
+            texto, grounding = self._run_single_turn_full(self._fontes_agent, prompt)
+        except ProvedorIAIndisponivelException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ProvedorIAIndisponivelException(f"Falha ao buscar fontes: {exc}") from exc
+        return self._parse_fontes(texto, grounding, tema_titulo)
 
+    @staticmethod
+    def _parse_fontes(
+        texto: str, grounding: genai_types.GroundingMetadata | None, tema_titulo: str
+    ) -> list[FonteEncontrada]:
+        chunks = getattr(grounding, "grounding_chunks", None) or []
+
+        fontes: list[FonteEncontrada] = []
+        for chunk in chunks:
+            web = getattr(chunk, "web", None)
+            titulo = getattr(web, "title", None) or f"Fonte sobre {tema_titulo}"
+            uri = getattr(web, "uri", None)
+            fontes.append(FonteEncontrada(titulo=titulo, origem=uri, conteudo=texto))
+
+        if not fontes:
+            # No grounding chunks came back - keep the model's synthesized text as a single
+            # source rather than failing the whole pipeline over an empty citations list.
+            fontes.append(
+                FonteEncontrada(
+                    titulo=f"Busca automática: {tema_titulo}", origem=None, conteudo=texto
+                )
+            )
+        return fontes
+
+    @_retry_transient
     def gerar_conteudo_modulo(
         self,
         tema_titulo: str,
@@ -205,7 +273,7 @@ class AdkProvider(AIProvider):
         conteudo_ja_coberto: list[str] | None = None,
         instrucoes_regeneracao: str | None = None,
     ) -> ConteudoGerado:
-        return self._gemini.gerar_conteudo_modulo(
+        prompt = prompt_gerar_conteudo_modulo(
             tema_titulo,
             modulo_titulo,
             modulo_descricao,
@@ -214,6 +282,20 @@ class AdkProvider(AIProvider):
             conteudo_ja_coberto,
             instrucoes_regeneracao,
         )
+        try:
+            conteudo = self._run_single_turn(self._conteudo_agent, prompt)
+        except ProvedorIAIndisponivelException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ProvedorIAIndisponivelException(f"Falha ao gerar conteúdo: {exc}") from exc
+
+        conteudo = conteudo.strip()
+        if not conteudo:
+            raise ProvedorIAIndisponivelException("O provedor de IA retornou um conteúdo vazio.")
+        return ConteudoGerado(conteudo=conteudo, modelo=self._settings.GEMINI_MODEL_CONTEUDO)
+
+    # --- not yet migrated: delegate to GeminiProvider (Fase 3 - needs a
+    # persistent, multi-turn SessionService) ---
 
     def conversar_com_ferramentas(
         self, mensagens: list[MensagemAgente], ferramentas: list[FerramentaDeclaracao]

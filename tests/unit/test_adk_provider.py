@@ -1,8 +1,10 @@
-"""Unit tests for `AdkProvider` (Fase 1 of the ADK migration): the
-`gerar_questionario`/`planejar_modulos` output-schema methods, mocked at the
-`_run_single_turn` seam so no real ADK `Runner`/Gemini call happens. The five
-not-yet-migrated methods are covered by proving they delegate to the internal
-`GeminiProvider` instance untouched.
+"""Unit tests for `AdkProvider` (Fases 1-2 of the ADK migration): the
+`gerar_questionario`/`planejar_modulos` output-schema methods and the
+`gerar_conteudo_modulo`/`buscar_fontes` plain-text/grounded methods, mocked at
+the `_run_single_turn`/`_run_single_turn_full` seam so no real ADK
+`Runner`/Gemini call happens. The three not-yet-migrated methods (needing a
+persistent, multi-turn `SessionService` - Fase 3) are covered by proving they
+delegate to the internal `GeminiProvider` instance untouched.
 """
 
 from unittest.mock import patch
@@ -10,7 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from app.ai.adk_provider import AdkProvider
-from app.ai.schemas import PlanoModulos, QuestionarioGerado
+from app.ai.schemas import ConteudoGerado, FonteEncontrada, PlanoModulos, QuestionarioGerado
 from app.config import Settings
 from app.core.exceptions import ProvedorIAIndisponivelException
 
@@ -31,6 +33,14 @@ def provider() -> AdkProvider:
 
 def _mock_run_single_turn(raw: str):
     return patch.object(AdkProvider, "_run_single_turn", staticmethod(lambda agent, prompt: raw))
+
+
+def _mock_run_single_turn_full(texto: str, grounding=None):
+    return patch.object(
+        AdkProvider,
+        "_run_single_turn_full",
+        staticmethod(lambda agent, prompt: (texto, grounding)),
+    )
 
 
 def test_gerar_questionario_mapeia_schema_para_dataclass(provider):
@@ -104,11 +114,59 @@ def test_planejar_modulos_com_json_invalido_levanta_excecao(provider):
             provider.planejar_modulos("Tema", None, ["fonte"], max_modulos=3)
 
 
+def test_gerar_conteudo_modulo_retorna_texto_da_ia(provider):
+    with _mock_run_single_turn("# Conteúdo\n\nTexto didático gerado."):
+        resultado = provider.gerar_conteudo_modulo("Tema", "Módulo", None, ["fonte"])
+
+    assert isinstance(resultado, ConteudoGerado)
+    assert resultado.conteudo == "# Conteúdo\n\nTexto didático gerado."
+    assert resultado.modelo == provider._settings.GEMINI_MODEL_CONTEUDO
+
+
+def test_gerar_conteudo_modulo_vazio_levanta_excecao(provider):
+    with _mock_run_single_turn("   "):
+        with pytest.raises(ProvedorIAIndisponivelException):
+            provider.gerar_conteudo_modulo("Tema", "Módulo", None, ["fonte"])
+
+
+def test_buscar_fontes_com_grounding_mapeia_chunks(provider):
+    class _Web:
+        def __init__(self, title, uri):
+            self.title = title
+            self.uri = uri
+
+    class _Chunk:
+        def __init__(self, web):
+            self.web = web
+
+    class _Grounding:
+        def __init__(self, chunks):
+            self.grounding_chunks = chunks
+
+    grounding = _Grounding([_Chunk(_Web("Fonte A", "https://a.example"))])
+    with _mock_run_single_turn_full("texto sintetizado", grounding):
+        fontes = provider.buscar_fontes("Tema", None)
+
+    assert len(fontes) == 1
+    assert isinstance(fontes[0], FonteEncontrada)
+    assert fontes[0].titulo == "Fonte A"
+    assert fontes[0].origem == "https://a.example"
+    assert fontes[0].conteudo == "texto sintetizado"
+
+
+def test_buscar_fontes_sem_grounding_usa_fallback(provider):
+    with _mock_run_single_turn_full("texto sintetizado", None):
+        fontes = provider.buscar_fontes("Tema", None)
+
+    assert len(fontes) == 1
+    assert fontes[0].titulo == "Busca automática: Tema"
+    assert fontes[0].origem is None
+    assert fontes[0].conteudo == "texto sintetizado"
+
+
 @pytest.mark.parametrize(
     "metodo,args",
     [
-        ("buscar_fontes", ("Tema", None)),
-        ("gerar_conteudo_modulo", ("Tema", "Módulo", None, ["fonte"])),
         ("responder_pergunta_aluno", ([], "pergunta")),
         ("resumir_conversa", ([],)),
     ],
