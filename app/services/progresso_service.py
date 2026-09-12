@@ -14,6 +14,7 @@ from app.models.progresso import STATUS_CONCLUIDO, ProgressoUsuario
 from app.models.tema import STATUS_PRONTO as TEMA_STATUS_PRONTO
 from app.models.tema import Tema
 from app.repositories.progresso_repository import ProgressoRepository
+from app.repositories.xp_repository import XpRepository
 from app.schemas.common import EstadoProgresso
 from app.schemas.progresso import (
     ProgressoMateriaOut,
@@ -22,6 +23,7 @@ from app.schemas.progresso import (
     ProgressoTemaOut,
 )
 from app.schemas.trilha import TrilhaMateriaOut, TrilhaModuloOut, TrilhaOut, TrilhaTemaOut
+from app.services import xp_service
 
 
 def _modulo_concluido(progresso: ProgressoUsuario | None) -> bool:
@@ -94,7 +96,9 @@ def montar_trilha(materias: list[Materia], progresso_rows: list[ProgressoUsuario
 
 
 def montar_progresso(
-    materias: list[Materia], progresso_rows: list[ProgressoUsuario]
+    materias: list[Materia],
+    progresso_rows: list[ProgressoUsuario],
+    xp_por_materia: dict[uuid.UUID, int],
 ) -> ProgressoOut:
     progresso_map = {p.modulo_id: p for p in progresso_rows}
     materias_out: list[ProgressoMateriaOut] = []
@@ -152,6 +156,7 @@ def montar_progresso(
                 nome=materia.nome,
                 estado=materia_estado,
                 percentual_completo=round(percentual_materia, 2),
+                xp=xp_por_materia.get(materia.id, 0),
                 temas=temas_out,
             )
         )
@@ -205,14 +210,41 @@ def atualizar_progresso(
     progresso_repo: ProgressoRepository,
     user_id: str,
     modulo_id: uuid.UUID,
+    materia_id: uuid.UUID,
     pontuacao: float,
     limite_aprovacao: float,
+    xp_repo: XpRepository,
 ) -> ProgressoUsuario:
+    """Also grants XP for this attempt (see `xp_service`) - this is the one
+    place a módulo's completion/retake is already detected, so XP-granting
+    lives here rather than being re-derived elsewhere."""
     progresso = progresso_repo.get_or_create(user_id, modulo_id)
+    era_primeira_tentativa = progresso.tentativas_count == 0
+    melhor_pontuacao_anterior = (
+        float(progresso.melhor_pontuacao) if progresso.melhor_pontuacao is not None else 0.0
+    )
+
     progresso.tentativas_count += 1
     if progresso.melhor_pontuacao is None or pontuacao > float(progresso.melhor_pontuacao):
         progresso.melhor_pontuacao = pontuacao
     if pontuacao >= limite_aprovacao:
         progresso.status = STATUS_CONCLUIDO
     progresso_repo.add(progresso)
+
+    # Every attempt after the first only earns XP for beating the previous
+    # best - regardless of whether that previous attempt had already passed,
+    # since the tiered first-attempt reward (see `xp_service`) already covers
+    # pass-or-fail on attempt #1.
+    melhoria = 0.0 if era_primeira_tentativa else max(0.0, pontuacao - melhor_pontuacao_anterior)
+    xp_service.registrar_xp_por_tentativa(
+        user_id,
+        materia_id,
+        modulo_id,
+        pontuacao,
+        limite_aprovacao,
+        era_primeira_tentativa,
+        melhoria,
+        xp_repo,
+    )
+
     return progresso

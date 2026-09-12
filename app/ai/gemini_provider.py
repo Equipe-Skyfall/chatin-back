@@ -26,6 +26,8 @@ from app.ai.prompts import (
     prompt_gerar_conteudo_modulo,
     prompt_gerar_questionario,
     prompt_planejar_modulos,
+    prompt_professor_aluno_system,
+    prompt_resumir_conversa,
 )
 from app.ai.schemas import (
     AlternativaGerada,
@@ -392,3 +394,47 @@ class GeminiProvider(AIProvider):
             texto="\n".join(texto_partes) if texto_partes else None,
             chamadas_ferramentas=chamadas,
         )
+
+    @_retry_transient
+    def responder_pergunta_aluno(
+        self,
+        historico: list[MensagemAgente],
+        pergunta: str,
+        conteudo_modulo: str | None = None,
+    ) -> str:
+        contents = [self._para_content(m) for m in historico]
+        contents.append(self._para_content(MensagemAgente(papel="user", conteudo=pergunta)))
+        try:
+            response = self._client.models.generate_content(
+                model=self._settings.GEMINI_MODEL_PROFESSOR,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=prompt_professor_aluno_system(conteudo_modulo)
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise ProvedorIAIndisponivelException(
+                f"Falha ao responder pergunta do aluno: {exc}"
+            ) from exc
+
+        texto = getattr(response, "text", None)
+        if not texto:
+            raise ProvedorIAIndisponivelException("O provedor de IA retornou uma resposta vazia.")
+        return texto
+
+    @_retry_transient
+    def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
+        contents = [self._para_content(m) for m in mensagens]
+        try:
+            response = self._client.models.generate_content(
+                model=self._settings.GEMINI_MODEL_PROFESSOR,
+                contents=contents,
+                config=types.GenerateContentConfig(system_instruction=prompt_resumir_conversa()),
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise ProvedorIAIndisponivelException(f"Falha ao resumir conversa: {exc}") from exc
+
+        texto = (getattr(response, "text", None) or "").strip()
+        if not texto:
+            raise ProvedorIAIndisponivelException("O provedor de IA retornou um resumo vazio.")
+        return texto

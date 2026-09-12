@@ -3,6 +3,7 @@ import uuid
 import pytest
 
 from app.core.exceptions import (
+    ConteudoIndisponivelException,
     RespostaInvalidaException,
     SubmissaoIncompletaException,
     TentativaJaFinalizadaException,
@@ -166,3 +167,27 @@ def test_questao_out_nunca_carrega_resposta_correta():
     from app.schemas.questionario import QuestaoOut
 
     assert "resposta_correta" not in QuestaoOut.model_fields
+
+
+def test_iniciar_tentativa_tema_sem_questoes_levanta_excecao(questionario_repo, tentativa_repo):
+    with pytest.raises(ConteudoIndisponivelException):
+        grading_service.iniciar_tentativa_tema(
+            uuid.uuid4(), uuid.uuid4(), 5, questionario_repo, tentativa_repo
+        )
+
+
+def test_iniciar_tentativa_tema_mistura_pools_de_varios_modulos(questionario_repo, tentativa_repo):
+    tema_id = uuid.uuid4()
+    _, questoes_1, _ = _seed_pool(questionario_repo, num_questoes=6)
+    _, questoes_2, _ = _seed_pool(questionario_repo, num_questoes=6)
+    pool_tema = [q.id for q in questoes_1] + [q.id for q in questoes_2]
+    questionario_repo.seed_pool_tema(tema_id, pool_tema)
+
+    tentativa, questoes = grading_service.iniciar_tentativa_tema(
+        tema_id, uuid.uuid4(), 5, questionario_repo, tentativa_repo
+    )
+
+    assert tentativa.tema_id == tema_id
+    assert tentativa.questionario_id is None
+    assert len(questoes) == 5
+    assert {q.id for q in questoes} <= set(pool_tema)

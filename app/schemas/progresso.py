@@ -26,6 +26,7 @@ class ProgressoMateriaOut(BaseModel):
     nome: str
     estado: EstadoProgresso
     percentual_completo: float
+    xp: int
     temas: list[ProgressoTemaOut]
 
 

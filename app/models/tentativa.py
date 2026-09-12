@@ -20,6 +20,7 @@ from app.models.gabarito import LETRAS_VALIDAS
 if TYPE_CHECKING:
     from app.models.questao import Questao
     from app.models.questionario import Questionario
+    from app.models.tema import Tema
 
 STATUS_EM_ANDAMENTO = "em_andamento"
 STATUS_CONCLUIDA = "concluida"
@@ -27,13 +28,29 @@ TENTATIVA_STATUSES = (STATUS_EM_ANDAMENTO, STATUS_CONCLUIDA)
 
 
 class Tentativa(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Scoped to exactly one of a módulo's `Questionario` (the normal case) OR
+    a whole `Tema` (a review quiz mixing questions from every módulo pool
+    under that tema - see `grading_service.iniciar_tentativa_tema`). A
+    tema-scoped attempt is graded the same way (grading only ever looks at
+    individual `questao_id`s, never a single owning questionário), but is
+    practice only: it does NOT update `ProgressoUsuario` or grant XP, since
+    it doesn't target one módulo to mark complete.
+    """
+
     __tablename__ = "tentativas"
     __table_args__ = (
         CheckConstraint(f"status IN {TENTATIVA_STATUSES}", name="ck_tentativas_status"),
+        CheckConstraint(
+            "(questionario_id IS NOT NULL)::int + (tema_id IS NOT NULL)::int = 1",
+            name="ck_tentativas_escopo",
+        ),
     )
 
-    questionario_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("questionarios.id", ondelete="CASCADE"), nullable=False
+    questionario_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("questionarios.id", ondelete="CASCADE"), nullable=True
+    )
+    tema_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("temas.id", ondelete="CASCADE"), nullable=True
     )
     # From the external auth service's JWT `userId` claim - a Prisma cuid()
     # string, not a UUID, hence plain String rather than the UUID column type.
@@ -43,7 +60,8 @@ class Tentativa(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     total_questoes: Mapped[int] = mapped_column(Integer, nullable=False)
     total_corretas: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    questionario: Mapped["Questionario"] = relationship()
+    questionario: Mapped["Questionario | None"] = relationship()
+    tema: Mapped["Tema | None"] = relationship()
     questoes_selecionadas: Mapped[list["TentativaQuestao"]] = relationship(
         back_populates="tentativa", cascade="all, delete-orphan", order_by="TentativaQuestao.ordem"
     )

@@ -20,10 +20,12 @@ from app.core.security import TokenPayload, decode_token, require_admin_role
 from app.repositories.conversa_repository import ConversaRepo
 from app.repositories.materia_repository import MateriaRepo
 from app.repositories.modulo_repository import ModuloRepo
+from app.repositories.perfil_repository import PerfilRepo
 from app.repositories.progresso_repository import ProgressoRepo
 from app.repositories.questionario_repository import QuestionarioRepo
 from app.repositories.tema_repository import TemaRepo
 from app.repositories.tentativa_repository import TentativaRepo
+from app.repositories.xp_repository import XpRepo
 
 __all__ = [
     "SettingsDep",
@@ -37,6 +39,8 @@ __all__ = [
     "TentativaRepo",
     "ProgressoRepo",
     "ConversaRepo",
+    "XpRepo",
+    "PerfilRepo",
 ]
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -59,15 +63,27 @@ def get_token_payload(settings: SettingsDep, credentials: BearerCredentials) -> 
 TokenPayloadDep = Annotated[TokenPayload, Depends(get_token_payload)]
 
 
-def get_current_user_id(payload: TokenPayloadDep) -> str:
+def _sincronizar_perfil(payload: TokenPayload, perfil_repo: PerfilRepo) -> None:
+    """Opportunistic write-through: this service has no other access to
+    authSys's user data, so every authenticated request refreshes the local
+    `perfis_usuario` mirror from that request's own JWT claims - see
+    `PerfilRepository.upsert` for why this is cheap enough to run on every
+    request rather than needing a separate sync job."""
+    if payload.username or payload.email:
+        perfil_repo.upsert(payload.user_id, payload.username, payload.email)
+
+
+def get_current_user_id(payload: TokenPayloadDep, perfil_repo: PerfilRepo) -> str:
+    _sincronizar_perfil(payload, perfil_repo)
     return payload.user_id
 
 
 CurrentUserId = Annotated[str, Depends(get_current_user_id)]
 
 
-def require_admin(payload: TokenPayloadDep) -> str:
+def require_admin(payload: TokenPayloadDep, perfil_repo: PerfilRepo) -> str:
     require_admin_role(payload)
+    _sincronizar_perfil(payload, perfil_repo)
     return payload.user_id
 
 

@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -24,8 +25,22 @@ class RespostaResultadoOut(BaseModel):
 
 class TentativaResultadoOut(BaseModel):
     id: UUID
-    questionario_id: UUID
+    questionario_id: UUID | None
+    tema_id: UUID | None
     pontuacao: float
     total_questoes: int
     total_corretas: int
     resultados: list[RespostaResultadoOut]
+
+
+class TentativaHistoricoOut(BaseModel):
+    id: UUID
+    modulo_id: UUID | None
+    modulo_titulo: str | None
+    tema_id: UUID | None
+    tema_titulo: str | None
+    status: str
+    pontuacao: float | None
+    total_questoes: int
+    total_corretas: int | None
+    created_at: datetime

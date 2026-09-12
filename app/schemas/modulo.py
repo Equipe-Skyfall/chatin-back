@@ -12,6 +12,13 @@ class ModuloCreate(BaseModel):
 
     titulo: str = Field(..., min_length=3, max_length=200)
     descricao: str | None = None
+    conteudo: str | None = Field(
+        None,
+        description=(
+            "Conteúdo já escrito à mão. Se informado, a IA não gera o conteúdo - só o "
+            "questionário, a partir deste texto."
+        ),
+    )
 
 
 class ModuloUpdate(BaseModel):

@@ -144,3 +144,33 @@ def prompt_planejar_modulos(
         "português.\n\n"
         f"FONTES:\n{fontes_texto}"
     )
+
+
+def prompt_professor_aluno_system(conteudo_modulo: str | None) -> str:
+    if conteudo_modulo:
+        contexto = (
+            "\n\nO aluno está estudando o seguinte conteúdo agora - baseie sua resposta nele "
+            f"sempre que a pergunta se relacionar a ele:\n\n{conteudo_modulo}"
+        )
+    else:
+        contexto = (
+            "\n\nO aluno não abriu esta conversa a partir de um módulo específico - responda de "
+            "forma geral, sempre com foco em ajudar na preparação para o ENEM."
+        )
+    return (
+        "Você é um professor particular, paciente e didático, ajudando um estudante brasileiro "
+        "a se preparar para o ENEM. Responda às perguntas do aluno de forma clara e objetiva, em "
+        "português, com exemplos quando ajudar a fixar o conceito. "
+        "Você NÃO tem acesso a nenhuma ferramenta, ao progresso do aluno ou a qualquer dado além "
+        "do que está nesta conversa - nunca finja que pode consultar ou alterar algo, você só "
+        "conversa e explica."
+        f"{contexto}"
+    )
+
+
+def prompt_resumir_conversa() -> str:
+    return (
+        "Resuma a conversa acima entre um aluno e seu professor virtual em no máximo 3 frases, "
+        "em português, destacando os principais tópicos e dúvidas tratados. Não cumprimente "
+        "ninguém nem se dirija ao leitor - devolva apenas o resumo em si."
+    )

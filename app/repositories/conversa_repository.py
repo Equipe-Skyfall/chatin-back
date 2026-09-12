@@ -21,9 +21,11 @@ class ConversaRepository(SqlAlchemyRepository[Conversa]):
         )
         return self.db.execute(stmt).scalar_one_or_none()
 
-    def list_by_user(self, user_id: str) -> list[Conversa]:
+    def list_by_user(self, user_id: str, tipo: str) -> list[Conversa]:
         stmt = (
-            select(Conversa).where(Conversa.user_id == user_id).order_by(Conversa.updated_at.desc())
+            select(Conversa)
+            .where(Conversa.user_id == user_id, Conversa.tipo == tipo)
+            .order_by(Conversa.updated_at.desc())
         )
         return list(self.db.execute(stmt).scalars().all())
 

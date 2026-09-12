@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL_QUESTIONARIO: str = "gemini-2.5-flash"
     GEMINI_MODEL_SEARCH: str = "gemini-2.5-flash"
     GEMINI_MODEL_AGENTE: str = "gemini-2.5-flash"
+    GEMINI_MODEL_PROFESSOR: str = "gemini-2.5-flash"
 
     # Content generation tuning
     QUESTIONARIO_POOL_SIZE: int = 12

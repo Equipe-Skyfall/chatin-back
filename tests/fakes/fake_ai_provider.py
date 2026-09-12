@@ -34,6 +34,11 @@ class FakeAIProvider(AIProvider):
         self.instrucoes_regeneracao_recebidas: list[str | None] = []
         self.plano_fixo: PlanoModulos | None = None
         self.resposta_agente_fixa: RespostaAgente | None = None
+        self.responder_pergunta_aluno_calls = 0
+        self.resumir_conversa_calls = 0
+        self.conteudos_modulo_recebidos: list[str | None] = []
+        self.falhar_responder_pergunta_aluno = False
+        self.falhar_resumir_conversa = False
 
     def buscar_fontes(
         self, tema_titulo: str, tema_descricao: str | None, direcionamento: str | None = None
@@ -118,3 +123,21 @@ class FakeAIProvider(AIProvider):
         if self.resposta_agente_fixa is not None:
             return self.resposta_agente_fixa
         return RespostaAgente(texto="Resposta de teste.", chamadas_ferramentas=[])
+
+    def responder_pergunta_aluno(
+        self,
+        historico: list[MensagemAgente],
+        pergunta: str,
+        conteudo_modulo: str | None = None,
+    ) -> str:
+        self.responder_pergunta_aluno_calls += 1
+        self.conteudos_modulo_recebidos.append(conteudo_modulo)
+        if self.falhar_responder_pergunta_aluno:
+            raise RuntimeError("falha simulada ao responder pergunta do aluno")
+        return f"Resposta de teste para: {pergunta}"
+
+    def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
+        self.resumir_conversa_calls += 1
+        if self.falhar_resumir_conversa:
+            raise RuntimeError("falha simulada ao resumir conversa")
+        return "Resumo de teste da conversa."

@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from app.ai.base import AIProvider
 from app.core.exceptions import (
     AppException,
+    ConteudoIndisponivelException,
     MateriaNaoEncontradaException,
     ModuloNaoEncontradoException,
     ModulosJaExistemException,
@@ -219,6 +220,9 @@ def _conteudo_ja_coberto(
     return [m.conteudo for m in anteriores]
 
 
+MODELO_IA_MANUAL = "manual"
+
+
 def criar_modulo(
     tema_id: uuid.UUID,
     titulo: str,
@@ -228,10 +232,20 @@ def criar_modulo(
     modulo_repo: ModuloRepository,
     questionario_repo: QuestionarioRepository,
     ai_provider: AIProvider,
+    *,
+    conteudo: str | None = None,
 ) -> Modulo:
     """Always appended after this tema's existing módulos - `ordem` isn't a
     creation-time input (see `ModuloCreate`); use `atualizar_modulo` to
-    reorder afterward."""
+    reorder afterward.
+
+    `conteudo`: an admin can write the teaching material by hand instead of
+    having the AI generate it - pass it here to skip that one AI call. The
+    quiz is still AI-generated from whatever content ends up on the módulo
+    (hand-written or not) - authoring 12 multiple-choice questions by hand
+    isn't a capability this offers today; use the admin chat's
+    `editar_questao` afterward for one-off manual corrections instead.
+    """
     tema = tema_repo.get_with_relations(tema_id)
     if tema is None:
         raise TemaNaoEncontradoException(tema_id)
@@ -253,7 +267,11 @@ def criar_modulo(
     _commit_com_ordem(modulo_repo, ordem)
     modulo_repo.refresh(modulo)
 
-    gerar_conteudo_modulo(modulo, tema, modulo_repo, ai_provider, conteudo_ja_coberto)
+    if conteudo:
+        modulo_repo.definir_conteudo(modulo, conteudo, MODELO_IA_MANUAL)
+        modulo_repo.commit()
+    else:
+        gerar_conteudo_modulo(modulo, tema, modulo_repo, ai_provider, conteudo_ja_coberto)
     gerar_questionario_modulo(modulo, questionario_repo, modulo_repo, ai_provider, pool_size)
     modulo_repo.refresh(modulo)
     return modulo
@@ -403,6 +421,70 @@ def regenerar_modulo(
     gerar_questionario_modulo(modulo, questionario_repo, modulo_repo, ai_provider, pool_size)
     modulo_repo.refresh(modulo)
     return modulo
+
+
+def regenerar_questionario_modulo(
+    tema_id: uuid.UUID,
+    modulo_id: uuid.UUID,
+    pool_size: int,
+    modulo_repo: ModuloRepository,
+    questionario_repo: QuestionarioRepository,
+    ai_provider: AIProvider,
+) -> Modulo:
+    """Rerolls just the quiz - one AI call, from the módulo's EXISTING
+    content - without touching that content. Use `regenerar_modulo` instead
+    when the content itself also needs to change."""
+    modulo = modulo_repo.get(modulo_id)
+    if modulo is None or modulo.tema_id != tema_id:
+        raise ModuloNaoEncontradoException(modulo_id)
+    if not modulo.conteudo:
+        raise ConteudoIndisponivelException(
+            "Este módulo ainda não tem conteúdo para gerar um questionário."
+        )
+
+    questionario_existente = questionario_repo.get_by_modulo(modulo_id)
+    if questionario_existente is not None:
+        modulo_repo.db.delete(questionario_existente)
+    modulo.status = MODULO_STATUS_GERANDO
+    modulo_repo.add(modulo)
+    modulo_repo.commit()
+
+    gerar_questionario_modulo(modulo, questionario_repo, modulo_repo, ai_provider, pool_size)
+    modulo_repo.refresh(modulo)
+    return modulo
+
+
+def regenerar_questionarios_tema(
+    tema_id: uuid.UUID,
+    pool_size: int,
+    tema_repo: TemaRepository,
+    modulo_repo: ModuloRepository,
+    questionario_repo: QuestionarioRepository,
+    ai_provider: AIProvider,
+) -> list[Modulo]:
+    """Bulk version of `regenerar_questionario_modulo` - rerolls the quiz for
+    every módulo under this tema that already has content, one AI call each,
+    content untouched. Módulos with no content yet are skipped, not failed;
+    a failure regenerating one módulo's quiz doesn't stop the others."""
+    tema = tema_repo.get_with_relations(tema_id)
+    if tema is None:
+        raise TemaNaoEncontradoException(tema_id)
+
+    atualizados = []
+    for modulo in sorted(tema.modulos, key=lambda m: m.ordem):
+        if not modulo.conteudo:
+            continue
+        try:
+            regenerar_questionario_modulo(
+                tema_id, modulo.id, pool_size, modulo_repo, questionario_repo, ai_provider
+            )
+            atualizados.append(modulo)
+        except AppException as exc:
+            logger.warning(
+                "Falha ao regenerar questionário do módulo '%s': %s", modulo.titulo, exc.detail
+            )
+            continue
+    return atualizados
 
 
 def editar_conteudo_modulo(

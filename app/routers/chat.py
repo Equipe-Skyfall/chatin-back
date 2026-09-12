@@ -13,7 +13,7 @@ from app.deps import (
     SettingsDep,
     TemaRepo,
 )
-from app.models.conversa import Conversa
+from app.models.conversa import TIPO_ADMIN, Conversa
 from app.schemas.chat import ChatMensagemInput, ChatRespostaOut, ConversaOut, MensagemOut
 from app.services import agent_service
 from app.services.agent_tools import FerramentaContexto
@@ -35,10 +35,10 @@ def enviar_mensagem(
 ) -> ChatRespostaOut:
     if body.conversa_id is not None:
         conversa = conversa_repo.get(body.conversa_id)
-        if conversa is None or conversa.user_id != admin_id:
+        if conversa is None or conversa.user_id != admin_id or conversa.tipo != TIPO_ADMIN:
             raise ConversaNaoEncontradaException(body.conversa_id)
     else:
-        conversa = Conversa(user_id=admin_id, titulo=body.texto[:200])
+        conversa = Conversa(user_id=admin_id, titulo=body.texto[:200], tipo=TIPO_ADMIN)
         conversa_repo.add(conversa)
         conversa_repo.commit()
         conversa_repo.refresh(conversa)
@@ -59,12 +59,12 @@ def enviar_mensagem(
 
 @router.get("", response_model=list[ConversaOut])
 def listar_conversas(admin_id: AdminUserId, conversa_repo: ConversaRepo) -> list[Conversa]:
-    return conversa_repo.list_by_user(admin_id)
+    return conversa_repo.list_by_user(admin_id, TIPO_ADMIN)
 
 
 @router.get("/{conversa_id}", response_model=list[MensagemOut])
 def obter_historico(conversa_id: UUID, admin_id: AdminUserId, conversa_repo: ConversaRepo) -> list:
     conversa = conversa_repo.get_with_mensagens(conversa_id)
-    if conversa is None or conversa.user_id != admin_id:
+    if conversa is None or conversa.user_id != admin_id or conversa.tipo != TIPO_ADMIN:
         raise ConversaNaoEncontradaException(conversa_id)
     return conversa.mensagens

@@ -59,6 +59,7 @@ def criar_modulo(
         modulo_repo,
         questionario_repo,
         ai_provider,
+        conteudo=body.conteudo,
     )
 
 
@@ -139,6 +140,52 @@ def regenerar_modulo(
         questionario_repo,
         ai_provider,
         instrucoes=body.instrucoes if body else None,
+    )
+
+
+@router.post(
+    "/temas/{tema_id}/modulos/{modulo_id}/questionario/regenerar", response_model=ModuloOut
+)
+def regenerar_questionario_modulo(
+    tema_id: UUID,
+    modulo_id: UUID,
+    _admin_id: AdminUserId,
+    modulo_repo: ModuloRepo,
+    questionario_repo: QuestionarioRepo,
+    ai_provider: AiProviderDep,
+    settings: SettingsDep,
+) -> Modulo:
+    """Rerolls just the quiz (one AI call) from the módulo's existing
+    content - unlike .../regenerar, this never touches the content itself."""
+    return curriculo_service.regenerar_questionario_modulo(
+        tema_id,
+        modulo_id,
+        settings.QUESTIONARIO_POOL_SIZE,
+        modulo_repo,
+        questionario_repo,
+        ai_provider,
+    )
+
+
+@router.post("/temas/{tema_id}/questionarios/regenerar", response_model=list[ModuloOut])
+def regenerar_questionarios_tema(
+    tema_id: UUID,
+    _admin_id: AdminUserId,
+    tema_repo: TemaRepo,
+    modulo_repo: ModuloRepo,
+    questionario_repo: QuestionarioRepo,
+    ai_provider: AiProviderDep,
+    settings: SettingsDep,
+) -> list[Modulo]:
+    """Bulk version: rerolls the quiz for every módulo under this tema that
+    already has content (one AI call per módulo) - content is untouched."""
+    return curriculo_service.regenerar_questionarios_tema(
+        tema_id,
+        settings.QUESTIONARIO_POOL_SIZE,
+        tema_repo,
+        modulo_repo,
+        questionario_repo,
+        ai_provider,
     )
 
 

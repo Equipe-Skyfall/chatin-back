@@ -3,6 +3,7 @@ from app.models.fonte import Fonte
 from app.models.gabarito import Gabarito
 from app.models.materia import Materia
 from app.models.modulo import Modulo
+from app.models.perfil import PerfilUsuario
 from app.models.progresso import ProgressoUsuario
 from app.models.questao import Questao
 from app.models.questionario import Questionario
@@ -12,6 +13,7 @@ from app.models.tentativa import (
     Tentativa,
     TentativaQuestao,
 )
+from app.models.xp import XpEvento
 
 __all__ = [
     "Materia",
@@ -27,4 +29,6 @@ __all__ = [
     "ProgressoUsuario",
     "Conversa",
     "Mensagem",
+    "XpEvento",
+    "PerfilUsuario",
 ]

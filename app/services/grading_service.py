@@ -7,10 +7,10 @@ never triggers a new AI call, which is the whole point of generating the pool
 once on módulo creation.
 """
 
-import random
 import uuid
 
 from app.core.exceptions import (
+    ConteudoIndisponivelException,
     RespostaInvalidaException,
     SubmissaoIncompletaException,
     TentativaJaFinalizadaException,
@@ -26,21 +26,35 @@ from app.models.tentativa import (
 from app.repositories.questionario_repository import QuestionarioRepository
 from app.repositories.tentativa_repository import TentativaRepository
 from app.schemas.tentativa import RespostaInput, RespostaResultadoOut
+from app.services import dificuldade_service
 
 
-def iniciar_tentativa(
-    questionario_id: uuid.UUID,
+def _iniciar_tentativa_com_pool(
+    pool_ids: list[uuid.UUID],
     user_id: str,
     num_questoes: int,
     questionario_repo: QuestionarioRepository,
     tentativa_repo: TentativaRepository,
+    *,
+    questionario_id: uuid.UUID | None,
+    tema_id: uuid.UUID | None,
 ) -> tuple[Tentativa, list[Questao]]:
-    pool_ids = questionario_repo.get_questao_ids_pool(questionario_id)
     quantidade = min(num_questoes, len(pool_ids))
-    selecionados = random.sample(pool_ids, quantidade)
+
+    # Adaptive selection: a student doing well overall gets more hard
+    # questions from the pool, one struggling gets more easy ones - see
+    # `dificuldade_service`. Falls back to an effectively uniform weighting
+    # (every question "médio") until enough answer data exists.
+    nivel = dificuldade_service.nivel_do_aluno(tentativa_repo.media_pontuacao_concluidas(user_id))
+    dificuldades = dificuldade_service.dificuldade_por_questao(pool_ids, questionario_repo)
+    pesos = {
+        qid: dificuldade_service.PESOS_POR_NIVEL[nivel][dificuldades[qid]] for qid in pool_ids
+    }
+    selecionados = dificuldade_service.amostra_ponderada_sem_reposicao(pool_ids, pesos, quantidade)
 
     tentativa = Tentativa(
         questionario_id=questionario_id,
+        tema_id=tema_id,
         user_id=user_id,
         status=STATUS_EM_ANDAMENTO,
         total_questoes=quantidade,
@@ -60,6 +74,51 @@ def iniciar_tentativa(
     ordem_map = {qid: idx for idx, qid in enumerate(selecionados)}
     questoes_ordenadas = sorted(questoes, key=lambda q: ordem_map[q.id])
     return tentativa, questoes_ordenadas
+
+
+def iniciar_tentativa(
+    questionario_id: uuid.UUID,
+    user_id: str,
+    num_questoes: int,
+    questionario_repo: QuestionarioRepository,
+    tentativa_repo: TentativaRepository,
+) -> tuple[Tentativa, list[Questao]]:
+    pool_ids = questionario_repo.get_questao_ids_pool(questionario_id)
+    return _iniciar_tentativa_com_pool(
+        pool_ids,
+        user_id,
+        num_questoes,
+        questionario_repo,
+        tentativa_repo,
+        questionario_id=questionario_id,
+        tema_id=None,
+    )
+
+
+def iniciar_tentativa_tema(
+    tema_id: uuid.UUID,
+    user_id: str,
+    num_questoes: int,
+    questionario_repo: QuestionarioRepository,
+    tentativa_repo: TentativaRepository,
+) -> tuple[Tentativa, list[Questao]]:
+    """A review quiz mixing questions from every ready módulo's pool under
+    the tema - practice only (see `Tentativa`'s docstring for why it doesn't
+    touch progress/XP)."""
+    pool_ids = questionario_repo.get_questao_ids_pool_por_tema(tema_id)
+    if not pool_ids:
+        raise ConteudoIndisponivelException(
+            "Este tema ainda não tem nenhum módulo com questionário pronto."
+        )
+    return _iniciar_tentativa_com_pool(
+        pool_ids,
+        user_id,
+        num_questoes,
+        questionario_repo,
+        tentativa_repo,
+        questionario_id=None,
+        tema_id=tema_id,
+    )
 
 
 def responder_tentativa(

@@ -6,6 +6,8 @@ from app.core.exceptions import (
     ModuloBloqueadoException,
     ModuloNaoEncontradoException,
     QuestionarioNaoEncontradoException,
+    TemaBloqueadoException,
+    TemaNaoEncontradoException,
     TentativaNaoEncontradaException,
 )
 from app.deps import (
@@ -17,11 +19,13 @@ from app.deps import (
     SettingsDep,
     TemaRepo,
     TentativaRepo,
+    XpRepo,
 )
 from app.models.modulo import STATUS_PRONTO as MODULO_STATUS_PRONTO
+from app.models.tema import STATUS_PRONTO as TEMA_STATUS_PRONTO
 from app.schemas.progresso import ProgressoOut
 from app.schemas.questionario import AlternativaOut, QuestaoOut, TentativaIniciarOut
-from app.schemas.tentativa import ResponderRequest, TentativaResultadoOut
+from app.schemas.tentativa import ResponderRequest, TentativaHistoricoOut, TentativaResultadoOut
 from app.services import grading_service
 from app.services.progresso_service import (
     atualizar_progresso,
@@ -81,6 +85,48 @@ def iniciar_tentativa(
     )
 
 
+@router.post("/temas/{tema_id}/tentativas", response_model=TentativaIniciarOut)
+def iniciar_tentativa_tema(
+    tema_id: UUID,
+    user_id: CurrentUserId,
+    tema_repo: TemaRepo,
+    progresso_repo: ProgressoRepo,
+    questionario_repo: QuestionarioRepo,
+    tentativa_repo: TentativaRepo,
+    settings: SettingsDep,
+) -> TentativaIniciarOut:
+    """A review quiz mixing questions from every ready módulo under this
+    tema - practice only, doesn't affect progress/XP (see `Tentativa`)."""
+    tema = tema_repo.get(tema_id)
+    if tema is None or tema.status != TEMA_STATUS_PRONTO:
+        raise TemaNaoEncontradoException(tema_id)
+
+    temas_da_materia = tema_repo.list_by_materia_with_modulos(tema.materia_id)
+    modulo_ids = [m.id for t in temas_da_materia for m in t.modulos]
+    progresso_map = {
+        p.modulo_id: p for p in progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
+    }
+    if estado_tema(tema, temas_da_materia, progresso_map) == "bloqueado":
+        raise TemaBloqueadoException()
+
+    tentativa, questoes = grading_service.iniciar_tentativa_tema(
+        tema_id, user_id, settings.TENTATIVA_NUM_QUESTOES, questionario_repo, tentativa_repo
+    )
+
+    return TentativaIniciarOut(
+        tentativa_id=tentativa.id,
+        questoes=[
+            QuestaoOut(
+                id=q.id,
+                ordem=idx,
+                enunciado=q.enunciado,
+                alternativas=[AlternativaOut(**alt) for alt in q.alternativas],
+            )
+            for idx, q in enumerate(questoes)
+        ],
+    )
+
+
 @router.post("/tentativas/{tentativa_id}/responder", response_model=TentativaResultadoOut)
 def responder_tentativa(
     tentativa_id: UUID,
@@ -89,6 +135,9 @@ def responder_tentativa(
     questionario_repo: QuestionarioRepo,
     tentativa_repo: TentativaRepo,
     progresso_repo: ProgressoRepo,
+    modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    xp_repo: XpRepo,
     settings: SettingsDep,
 ) -> TentativaResultadoOut:
     tentativa = tentativa_repo.get(tentativa_id)
@@ -99,19 +148,26 @@ def responder_tentativa(
         tentativa, body.respostas, questionario_repo, tentativa_repo
     )
 
-    modulo_id = tentativa.questionario.modulo_id
-    atualizar_progresso(
-        progresso_repo,
-        user_id,
-        modulo_id,
-        float(tentativa.pontuacao),
-        settings.PONTUACAO_MINIMA_APROVACAO,
-    )
-    progresso_repo.commit()
+    if tentativa.questionario_id is not None:
+        modulo_id = tentativa.questionario.modulo_id
+        modulo = modulo_repo.get(modulo_id)
+        tema = tema_repo.get(modulo.tema_id)
+        atualizar_progresso(
+            progresso_repo,
+            user_id,
+            modulo_id,
+            tema.materia_id,
+            float(tentativa.pontuacao),
+            settings.PONTUACAO_MINIMA_APROVACAO,
+            xp_repo,
+        )
+        progresso_repo.commit()
+    # a tema-scoped (review) attempt is practice only - no progress/XP change
 
     return TentativaResultadoOut(
         id=tentativa.id,
         questionario_id=tentativa.questionario_id,
+        tema_id=tentativa.tema_id,
         pontuacao=float(tentativa.pontuacao),
         total_questoes=tentativa.total_questoes,
         total_corretas=tentativa.total_corretas,
@@ -119,11 +175,34 @@ def responder_tentativa(
     )
 
 
+@router.get("/tentativas", response_model=list[TentativaHistoricoOut])
+def listar_minhas_tentativas(user_id: CurrentUserId, tentativa_repo: TentativaRepo) -> list:
+    return [
+        TentativaHistoricoOut(
+            id=t.id,
+            modulo_id=t.questionario.modulo_id if t.questionario_id else None,
+            modulo_titulo=t.questionario.modulo.titulo if t.questionario_id else None,
+            tema_id=t.tema_id,
+            tema_titulo=t.tema.titulo if t.tema_id else None,
+            status=t.status,
+            pontuacao=float(t.pontuacao) if t.pontuacao is not None else None,
+            total_questoes=t.total_questoes,
+            total_corretas=t.total_corretas,
+            created_at=t.created_at,
+        )
+        for t in tentativa_repo.list_by_user(user_id)
+    ]
+
+
 @router.get("/progresso", response_model=ProgressoOut)
 def obter_progresso(
-    user_id: CurrentUserId, materia_repo: MateriaRepo, progresso_repo: ProgressoRepo
+    user_id: CurrentUserId,
+    materia_repo: MateriaRepo,
+    progresso_repo: ProgressoRepo,
+    xp_repo: XpRepo,
 ) -> ProgressoOut:
     materias = materia_repo.list_all_with_temas_e_modulos()
     modulo_ids = [m.id for materia in materias for tema in materia.temas for m in tema.modulos]
     progresso_rows = progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
-    return montar_progresso(materias, progresso_rows)
+    xp_por_materia = {m.id: xp_repo.total_por_usuario_e_materia(user_id, m.id) for m in materias}
+    return montar_progresso(materias, progresso_rows, xp_por_materia)

@@ -142,8 +142,12 @@ def _criar_modulo(args: dict[str, Any], ctx: FerramentaContexto) -> str:
         ctx.modulo_repo,
         ctx.questionario_repo,
         ctx.ai_provider,
+        conteudo=args.get("conteudo"),
     )
-    return f"Módulo '{modulo.titulo}' criado (id={modulo.id}, ordem={modulo.ordem}), status={modulo.status}."
+    return (
+        f"Módulo '{modulo.titulo}' criado (id={modulo.id}, ordem={modulo.ordem}), "
+        f"status={modulo.status}."
+    )
 
 
 def _atualizar_modulo(args: dict[str, Any], ctx: FerramentaContexto) -> str:
@@ -177,6 +181,33 @@ def _regenerar_modulo(args: dict[str, Any], ctx: FerramentaContexto) -> str:
         instrucoes=args.get("instrucoes"),
     )
     return f"Módulo '{modulo.titulo}' regenerado (conteúdo + questionário), status={modulo.status}."
+
+
+def _regenerar_questionario_modulo(args: dict[str, Any], ctx: FerramentaContexto) -> str:
+    modulo = curriculo_service.regenerar_questionario_modulo(
+        _uid(args["tema_id"]),
+        _uid(args["modulo_id"]),
+        ctx.pool_size,
+        ctx.modulo_repo,
+        ctx.questionario_repo,
+        ctx.ai_provider,
+    )
+    return f"Questionário do módulo '{modulo.titulo}' regenerado (conteúdo não foi alterado)."
+
+
+def _regenerar_questionarios_tema(args: dict[str, Any], ctx: FerramentaContexto) -> str:
+    modulos = curriculo_service.regenerar_questionarios_tema(
+        _uid(args["tema_id"]),
+        ctx.pool_size,
+        ctx.tema_repo,
+        ctx.modulo_repo,
+        ctx.questionario_repo,
+        ctx.ai_provider,
+    )
+    if not modulos:
+        return "Nenhum módulo deste tema tinha conteúdo pronto para gerar um novo questionário."
+    linhas = "\n".join(f"- {m.titulo}" for m in modulos)
+    return f"Questionário regenerado para {len(modulos)} módulo(s):\n{linhas}"
 
 
 def _listar_modulos(args: dict[str, Any], ctx: FerramentaContexto) -> str:
@@ -388,11 +419,12 @@ TOOLS: list[FerramentaDeclaracao] = [
         descricao=(
             "Cria um módulo dentro de um tema (o tema precisa estar com status 'pronto'). "
             "Sempre é adicionado ao final da lista de módulos desse tema - para mudar a "
-            "posição depois, use atualizar_modulo. Gera automaticamente o conteúdo didático "
-            "do módulo (a partir das fontes do tema e da descrição/foco deste módulo) e, em "
-            "seguida, seu questionário de múltipla escolha. Para quebrar um tema em vários "
-            "módulos, chame esta ferramenta uma vez por módulo, com título/descrição "
-            "descrevendo o foco de cada um."
+            "posição depois, use atualizar_modulo. Por padrão gera automaticamente o "
+            "conteúdo didático do módulo (a partir das fontes do tema e da descrição/foco "
+            "deste módulo); se o usuário fornecer o `conteudo` já pronto (escrito por ele), "
+            "esse texto é usado no lugar - a IA só gera o questionário de múltipla escolha "
+            "a partir dele. Para quebrar um tema em vários módulos, chame esta ferramenta "
+            "uma vez por módulo, com título/descrição descrevendo o foco de cada um."
         ),
         parametros={
             "type": "OBJECT",
@@ -400,6 +432,13 @@ TOOLS: list[FerramentaDeclaracao] = [
                 "tema_id": {"type": "STRING"},
                 "titulo": {"type": "STRING"},
                 "descricao": {"type": "STRING", "description": "O foco específico deste módulo."},
+                "conteudo": {
+                    "type": "STRING",
+                    "description": (
+                        "Conteúdo didático já escrito pelo usuário. Se informado, a IA NÃO "
+                        "gera o conteúdo - só o questionário, a partir deste texto."
+                    ),
+                },
             },
             "required": ["tema_id", "titulo"],
         },
@@ -448,10 +487,43 @@ TOOLS: list[FerramentaDeclaracao] = [
                 "modulo_id": {"type": "STRING"},
                 "instrucoes": {
                     "type": "STRING",
-                    "description": "O que mudar em relação à versão atual, nas palavras do usuário.",
+                    "description": (
+                        "O que mudar em relação à versão atual, nas palavras do usuário."
+                    ),
                 },
             },
             "required": ["tema_id", "modulo_id"],
+        },
+    ),
+    FerramentaDeclaracao(
+        nome="regenerar_questionario_modulo",
+        descricao=(
+            "Gera um questionário novo (nova chamada de IA) para um módulo, mantendo o "
+            "conteúdo didático como está - use quando o usuário só quer questões novas/"
+            "diferentes, sem mudar o que o módulo ensina. Para mudar o conteúdo também, "
+            "use regenerar_modulo."
+        ),
+        parametros={
+            "type": "OBJECT",
+            "properties": {
+                "tema_id": {"type": "STRING"},
+                "modulo_id": {"type": "STRING"},
+            },
+            "required": ["tema_id", "modulo_id"],
+        },
+    ),
+    FerramentaDeclaracao(
+        nome="regenerar_questionarios_tema",
+        descricao=(
+            "Gera um questionário novo para TODOS os módulos de um tema que já têm "
+            "conteúdo (uma chamada de IA por módulo, conteúdo mantido) - use quando o "
+            "usuário pedir para renovar/criar questionários novos para um tema inteiro, "
+            "não só um módulo específico."
+        ),
+        parametros={
+            "type": "OBJECT",
+            "properties": {"tema_id": {"type": "STRING"}},
+            "required": ["tema_id"],
         },
     ),
     FerramentaDeclaracao(
@@ -523,6 +595,8 @@ _DISPATCH: dict[str, Callable[[dict[str, Any], FerramentaContexto], str]] = {
     "atualizar_modulo": _atualizar_modulo,
     "deletar_modulo": _deletar_modulo,
     "regenerar_modulo": _regenerar_modulo,
+    "regenerar_questionario_modulo": _regenerar_questionario_modulo,
+    "regenerar_questionarios_tema": _regenerar_questionarios_tema,
     "obter_conteudo_modulo": _obter_conteudo_modulo,
     "editar_conteudo_modulo": _editar_conteudo_modulo,
     "listar_questoes": _listar_questoes,

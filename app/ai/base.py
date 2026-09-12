@@ -71,3 +71,21 @@ class AIProvider(ABC):
         """One turn of a tool-calling chat: given the conversation so far and
         the tools available, return either a final text reply or the tool
         call(s) the agent wants executed next."""
+
+    @abstractmethod
+    def responder_pergunta_aluno(
+        self,
+        historico: list[MensagemAgente],
+        pergunta: str,
+        conteudo_modulo: str | None = None,
+    ) -> str:
+        """Grounded Q&A for a student - deliberately NOT tool-calling (unlike
+        `conversar_com_ferramentas`): the model sees only `conteudo_modulo`
+        (the módulo the student is currently studying, if any) plus the
+        conversation history, and returns its reply text directly. No agent
+        loop, no function calls, no access to any other data."""
+
+    @abstractmethod
+    def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
+        """Summarizes a student/teacher conversation into a short digest for
+        the student's conversation-summary history."""

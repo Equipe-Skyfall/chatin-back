@@ -45,6 +45,16 @@ class InMemoryQuestionarioRepository:
         self.questoes: dict[uuid.UUID, Questao] = {}
         self.gabaritos: dict[uuid.UUID, str] = {}
         self._questionarios_by_modulo: dict[uuid.UUID, Questionario] = {}
+        self._pool_por_tema: dict[uuid.UUID, list[uuid.UUID]] = {}
+
+    def seed_pool_tema(self, tema_id: uuid.UUID, questao_ids: list[uuid.UUID]) -> None:
+        """Test double shortcut: register a tema's review-quiz pool directly,
+        rather than modeling the full módulo/tema join the real repository
+        query does."""
+        self._pool_por_tema[tema_id] = list(questao_ids)
+
+    def get_questao_ids_pool_por_tema(self, tema_id: uuid.UUID) -> list[uuid.UUID]:
+        return list(self._pool_por_tema.get(tema_id, []))
 
     def seed(
         self,
@@ -68,6 +78,14 @@ class InMemoryQuestionarioRepository:
 
     def get_gabarito_map(self, questao_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
         return {qid: self.gabaritos[qid] for qid in questao_ids if qid in self.gabaritos}
+
+    def estatisticas_por_questao(
+        self, questao_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, tuple[int, float]]:
+        """Test double: no answer history is seeded here, so every question
+        looks brand-new (0 respostas) - callers fall back to the cold-start
+        default difficulty, matching real behavior for an unanswered question."""
+        return dict.fromkeys(questao_ids, (0, 0.0))
 
     def add(self, entity):
         if getattr(entity, "id", None) is None:
@@ -121,6 +139,14 @@ class InMemoryTentativaRepository:
         tentativa.pontuacao = pontuacao
         tentativa.total_corretas = total_corretas
 
+    def media_pontuacao_concluidas(self, user_id: str) -> float | None:
+        pontuacoes = [
+            float(t.pontuacao)
+            for t in self.tentativas.values()
+            if t.user_id == user_id and t.status == "concluida" and t.pontuacao is not None
+        ]
+        return sum(pontuacoes) / len(pontuacoes) if pontuacoes else None
+
     def flush(self) -> None:
         pass
 
@@ -166,3 +192,25 @@ class InMemoryProgressoRepository:
 
     def commit(self) -> None:
         pass
+
+
+class InMemoryXpRepository:
+    def __init__(self):
+        self.eventos: list = []
+
+    def add(self, entity) -> None:
+        self.eventos.append(entity)
+        return entity
+
+    def commit(self) -> None:
+        pass
+
+    def total_por_usuario(self, user_id: str) -> int:
+        return sum(e.quantidade for e in self.eventos if e.user_id == user_id)
+
+    def total_por_usuario_e_materia(self, user_id: str, materia_id: uuid.UUID) -> int:
+        return sum(
+            e.quantidade
+            for e in self.eventos
+            if e.user_id == user_id and e.materia_id == materia_id
+        )

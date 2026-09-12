@@ -32,6 +32,8 @@ CLOCK_SKEW_LEEWAY_SECONDS = 30
 class TokenPayload:
     user_id: str
     role: str | None
+    username: str | None = None
+    email: str | None = None
 
 
 def decode_token(token: str, settings: Settings) -> TokenPayload:
@@ -49,7 +51,12 @@ def decode_token(token: str, settings: Settings) -> TokenPayload:
     if not user_id:
         raise NaoAutenticadoException("Token não contém identificador de usuário (userId).")
 
-    return TokenPayload(user_id=str(user_id), role=payload.get("role"))
+    return TokenPayload(
+        user_id=str(user_id),
+        role=payload.get("role"),
+        username=payload.get("username"),
+        email=payload.get("email"),
+    )
 
 
 def require_admin_role(payload: TokenPayload) -> None:

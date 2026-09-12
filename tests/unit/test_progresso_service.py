@@ -122,43 +122,71 @@ def test_montar_trilha_segundo_tema_libera_quando_primeiro_concluido():
 
 
 def test_atualizar_progresso_primeira_tentativa_cria_registro():
-    from tests.fakes.in_memory_repositories import InMemoryProgressoRepository
+    from tests.fakes.in_memory_repositories import InMemoryProgressoRepository, InMemoryXpRepository
 
     repo = InMemoryProgressoRepository()
-    user_id, modulo_id = uuid.uuid4(), uuid.uuid4()
+    xp_repo = InMemoryXpRepository()
+    user_id, modulo_id, materia_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
     progresso = progresso_service.atualizar_progresso(
-        repo, user_id, modulo_id, 40.0, limite_aprovacao=60.0
+        repo, user_id, modulo_id, materia_id, 40.0, limite_aprovacao=60.0, xp_repo=xp_repo
     )
 
     assert progresso.tentativas_count == 1
     assert float(progresso.melhor_pontuacao) == 40.0
     assert progresso.status == STATUS_DISPONIVEL
+    assert xp_repo.total_por_usuario(user_id) == 20  # first attempt, failing tier
 
 
 def test_atualizar_progresso_aprova_acima_do_limite():
-    from tests.fakes.in_memory_repositories import InMemoryProgressoRepository
+    from tests.fakes.in_memory_repositories import InMemoryProgressoRepository, InMemoryXpRepository
 
     repo = InMemoryProgressoRepository()
-    user_id, modulo_id = uuid.uuid4(), uuid.uuid4()
+    xp_repo = InMemoryXpRepository()
+    user_id, modulo_id, materia_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
     progresso = progresso_service.atualizar_progresso(
-        repo, user_id, modulo_id, 80.0, limite_aprovacao=60.0
+        repo, user_id, modulo_id, materia_id, 80.0, limite_aprovacao=60.0, xp_repo=xp_repo
     )
 
     assert progresso.status == STATUS_CONCLUIDO
+    assert xp_repo.total_por_usuario(user_id) == 100  # first attempt, "bom" tier (80-99%)
 
 
 def test_atualizar_progresso_melhor_pontuacao_nunca_diminui():
-    from tests.fakes.in_memory_repositories import InMemoryProgressoRepository
+    from tests.fakes.in_memory_repositories import InMemoryProgressoRepository, InMemoryXpRepository
 
     repo = InMemoryProgressoRepository()
-    user_id, modulo_id = uuid.uuid4(), uuid.uuid4()
+    xp_repo = InMemoryXpRepository()
+    user_id, modulo_id, materia_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
-    progresso_service.atualizar_progresso(repo, user_id, modulo_id, 80.0, limite_aprovacao=60.0)
+    progresso_service.atualizar_progresso(
+        repo, user_id, modulo_id, materia_id, 80.0, limite_aprovacao=60.0, xp_repo=xp_repo
+    )
     progresso = progresso_service.atualizar_progresso(
-        repo, user_id, modulo_id, 50.0, limite_aprovacao=60.0
+        repo, user_id, modulo_id, materia_id, 50.0, limite_aprovacao=60.0, xp_repo=xp_repo
     )
 
     assert float(progresso.melhor_pontuacao) == 80.0
     assert progresso.tentativas_count == 2
+    # the second (worse) attempt earns no additional XP - only the first one did
+    assert xp_repo.total_por_usuario(user_id) == 100
+
+
+def test_atualizar_progresso_retentativa_com_melhoria_ganha_xp():
+    from tests.fakes.in_memory_repositories import InMemoryProgressoRepository, InMemoryXpRepository
+
+    repo = InMemoryProgressoRepository()
+    xp_repo = InMemoryXpRepository()
+    user_id, modulo_id, materia_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+    progresso_service.atualizar_progresso(
+        repo, user_id, modulo_id, materia_id, 60.0, limite_aprovacao=60.0, xp_repo=xp_repo
+    )
+    xp_apos_primeira = xp_repo.total_por_usuario(user_id)
+    progresso_service.atualizar_progresso(
+        repo, user_id, modulo_id, materia_id, 90.0, limite_aprovacao=60.0, xp_repo=xp_repo
+    )
+
+    # retake that beats the previous best earns the improvement as bonus XP
+    assert xp_repo.total_por_usuario(user_id) == xp_apos_primeira + 30
