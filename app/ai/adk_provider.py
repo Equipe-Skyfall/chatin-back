@@ -1,5 +1,5 @@
 """Concrete `AIProvider` strategy backed by the Google Agent Development Kit
-(`google-adk`) - Fases 1-2 of the ADK migration (see the migration plan).
+(`google-adk`) - Fases 1-3 of the ADK migration (see the migration plan).
 
 Fase 1: `gerar_questionario` and `planejar_modulos` run through ADK using
 `LlmAgent(output_schema=<pydantic model>)` (`app/ai/adk_schemas.py`) in place
@@ -15,28 +15,45 @@ the ADK's builtin `google_search` tool) also run through ADK now - both are
 still single-turn (one prompt, one response), so they reuse the same
 throwaway-session helper as Fase 1, just without an `output_schema`.
 
-The remaining three `AIProvider` methods still delegate, by composition, to
-an internal `GeminiProvider` instance - `conversar_com_ferramentas` and the
-student-chat methods (`responder_pergunta_aluno`/`resumir_conversa`) need a
-persistent, multi-turn `SessionService`, which is Fase 3's scope. This keeps
+Fase 3: `conversar_com_ferramentas` (the admin tool-calling agent) also runs
+through ADK now, the native way - a fresh `LlmAgent(tools=...)` per call
+(tools are closures over that call's `FerramentaContexto`, see
+`app/ai/adk_tools.py`) handed to a `Runner` backed by a persistent
+`DatabaseSessionService`, so the ADK's own `Session`/`Event`s (keyed by
+`conversa_id`) are the source of truth for this conversation's history - the
+`Runner` auto-invokes tools and manages the whole model<->tool loop
+internally (capped via `RunConfig(max_llm_calls=...)`), which is what makes
+`AIProvider.conversar_com_ferramentas` return one final string instead of one
+round trip at a time.
+
+The remaining two `AIProvider` methods (`responder_pergunta_aluno`/
+`resumir_conversa`, the student chat) still delegate, by composition, to an
+internal `GeminiProvider` instance - migrating them to the same persistent
+`SessionService` is a follow-up, not required by this phase. This keeps
 `AI_PROVIDER=adk` fully functional in production from Fase 1 onward, with
 `AI_PROVIDER=gemini` remaining available as an instant rollback.
 """
 
 import asyncio
 import logging
+import uuid
+from datetime import UTC, datetime
 
-from google.adk.agents import LlmAgent
-from google.adk.runners import InMemoryRunner
+from google.adk.agents import LlmAgent, RunConfig
+from google.adk.agents.invocation_context import LlmCallsLimitExceededError
+from google.adk.runners import InMemoryRunner, Runner
+from google.adk.sessions import DatabaseSessionService
 from google.adk.tools import google_search
 from google.genai import types as genai_types
 from pydantic import ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.ai.adk_schemas import PlanoModulosSchema, QuestionarioSchema
+from app.ai.adk_tools import construir_tools
 from app.ai.base import AIProvider
 from app.ai.gemini_provider import GeminiProvider
 from app.ai.prompts import (
+    AGENTE_ADMIN_SYSTEM_INSTRUCTION,
     prompt_buscar_fontes,
     prompt_gerar_conteudo_modulo,
     prompt_gerar_questionario,
@@ -45,17 +62,17 @@ from app.ai.prompts import (
 from app.ai.schemas import (
     AlternativaGerada,
     ConteudoGerado,
-    FerramentaDeclaracao,
+    FerramentaContexto,
     FonteEncontrada,
     MensagemAgente,
+    MensagemHistorico,
     ModuloPlanejado,
     PlanoModulos,
     QuestaoGerada,
     QuestionarioGerado,
-    RespostaAgente,
 )
 from app.config import Settings
-from app.core.exceptions import ProvedorIAIndisponivelException
+from app.core.exceptions import AgenteLimiteExcedidoException, ProvedorIAIndisponivelException
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +81,9 @@ _retry_transient = retry(
 )
 
 _APP_NAME = "chatin"
-_USER_ID = "system"  # single-turn, stateless calls - no per-user session reuse yet (Fase 1)
+_USER_ID = "system"  # sessions are keyed by conversa_id (already globally
+# unique) - a constant user_id is enough, ADK's per-user semantics aren't
+# needed here.
 
 
 class AdkProvider(AIProvider):
@@ -97,6 +116,10 @@ class AdkProvider(AIProvider):
             instruction="Você é um assistente de pesquisa educacional.",
             tools=[google_search],
         )
+        # The admin agent's own session store - persistent, unlike the
+        # throwaway sessions the other methods above use, since its history
+        # (tool calls included) needs to survive across HTTP requests.
+        self._agente_session_service = DatabaseSessionService(db_url=settings.adk_session_db_url)
 
     # --- single-turn ADK invocation helper ---
 
@@ -294,13 +317,122 @@ class AdkProvider(AIProvider):
             raise ProvedorIAIndisponivelException("O provedor de IA retornou um conteúdo vazio.")
         return ConteudoGerado(conteudo=conteudo, modelo=self._settings.GEMINI_MODEL_CONTEUDO)
 
-    # --- not yet migrated: delegate to GeminiProvider (Fase 3 - needs a
-    # persistent, multi-turn SessionService) ---
+    # --- admin tool-calling agent (Fase 3) ---
 
     def conversar_com_ferramentas(
-        self, mensagens: list[MensagemAgente], ferramentas: list[FerramentaDeclaracao]
-    ) -> RespostaAgente:
-        return self._gemini.conversar_com_ferramentas(mensagens, ferramentas)
+        self, mensagens: list[MensagemAgente], ctx: FerramentaContexto
+    ) -> str:
+        """Runs the admin agent's full tool-calling loop the native ADK way:
+        a fresh `LlmAgent` (tools closed over this call's `ctx`, see
+        `adk_tools.construir_tools`) handed to a `Runner` backed by the
+        persistent `DatabaseSessionService`, keyed by `ctx.conversa_id` - the
+        `Runner` auto-invokes tools and manages the whole model<->tool loop
+        internally, capped by `RunConfig(max_llm_calls=...)`."""
+        pergunta = mensagens[-1].conteudo or "" if mensagens else ""
+        session_id = str(ctx.conversa_id)
+
+        agente = LlmAgent(
+            name="agente_admin_agent",
+            model=self._settings.GEMINI_MODEL_AGENTE,
+            instruction=AGENTE_ADMIN_SYSTEM_INSTRUCTION,
+            tools=construir_tools(ctx),
+        )
+        runner = Runner(
+            app_name=_APP_NAME, agent=agente, session_service=self._agente_session_service
+        )
+
+        async def _run() -> str:
+            session = await self._agente_session_service.get_session(
+                app_name=_APP_NAME, user_id=_USER_ID, session_id=session_id
+            )
+            if session is None:
+                await self._agente_session_service.create_session(
+                    app_name=_APP_NAME, user_id=_USER_ID, session_id=session_id
+                )
+            content = genai_types.Content(
+                role="user", parts=[genai_types.Part.from_text(text=pergunta)]
+            )
+            run_config = RunConfig(max_llm_calls=self._settings.AGENTE_MAX_ITERACOES)
+            texto_final = ""
+            async for event in runner.run_async(
+                user_id=_USER_ID,
+                session_id=session_id,
+                new_message=content,
+                run_config=run_config,
+            ):
+                if event.error_message:
+                    raise ProvedorIAIndisponivelException(
+                        f"Falha na conversa com o agente: {event.error_message}"
+                    )
+                if event.is_final_response() and event.content and event.content.parts:
+                    texto_final = "".join(
+                        part.text for part in event.content.parts if part.text
+                    )
+            return texto_final
+
+        try:
+            return asyncio.run(_run())
+        except LlmCallsLimitExceededError as exc:
+            raise AgenteLimiteExcedidoException() from exc
+        except ProvedorIAIndisponivelException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ProvedorIAIndisponivelException(f"Falha na conversa com o agente: {exc}") from exc
+
+    def obter_historico_sessao(self, conversa_id: uuid.UUID) -> list[MensagemHistorico] | None:
+        """Reads the admin agent's ADK session for `conversa_id` and
+        translates its `Event`s into `MensagemHistorico` - `None` when no
+        session exists yet (e.g. a conversation never sent through
+        `AI_PROVIDER=adk`), so the caller can fall back to another source."""
+
+        async def _run() -> list[MensagemHistorico] | None:
+            session = await self._agente_session_service.get_session(
+                app_name=_APP_NAME, user_id=_USER_ID, session_id=str(conversa_id)
+            )
+            if session is None:
+                return None
+            mensagens = []
+            for event in session.events:
+                mensagem = self._event_para_mensagem_historico(event)
+                if mensagem is not None:
+                    mensagens.append(mensagem)
+            return mensagens
+
+        return asyncio.run(_run())
+
+    @staticmethod
+    def _event_para_mensagem_historico(event) -> MensagemHistorico | None:  # noqa: ANN001
+        texto = None
+        if event.content and event.content.parts:
+            texto = "".join(part.text for part in event.content.parts if part.text) or None
+
+        chamadas = event.get_function_calls()
+        respostas = event.get_function_responses()
+        chamadas_ferramentas: list[dict] | None = None
+        if chamadas:
+            chamadas_ferramentas = [
+                {"id": c.id, "nome": c.name, "argumentos": dict(c.args or {})} for c in chamadas
+            ]
+        elif respostas:
+            chamadas_ferramentas = [{"id": r.id, "nome": r.name} for r in respostas]
+
+        if texto is None and not chamadas_ferramentas:
+            return None
+
+        if event.author == "user":
+            papel = "user"
+        elif respostas:
+            papel = "tool"
+        else:
+            papel = "assistant"
+
+        return MensagemHistorico(
+            id=uuid.uuid5(uuid.NAMESPACE_OID, event.id),
+            papel=papel,
+            conteudo=texto,
+            chamadas_ferramentas=chamadas_ferramentas,
+            created_at=datetime.fromtimestamp(event.timestamp, tz=UTC),
+        )
 
     def responder_pergunta_aluno(
         self,

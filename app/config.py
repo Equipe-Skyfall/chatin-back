@@ -43,6 +43,18 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
+    @property
+    def adk_session_db_url(self) -> str:
+        """`SUPABASE_DB_URL` with its driver swapped for an async one -
+        the ADK's `DatabaseSessionService` (used by `AdkProvider` for the
+        admin agent's conversation history) requires an async SQLAlchemy
+        engine, while every other repository in this app stays on the
+        synchronous `psycopg` engine. This is the one place that engine
+        needs to exist, isolated from the rest of the app."""
+        scheme, rest = self.SUPABASE_DB_URL.split("://", 1)
+        backend = scheme.split("+", 1)[0]
+        return f"{backend}+asyncpg://{rest}"
+
 
 @lru_cache
 def get_settings() -> Settings:
