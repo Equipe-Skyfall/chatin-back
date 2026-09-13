@@ -25,6 +25,7 @@ from app.core.exceptions import (
     QuestionarioNaoEncontradoException,
     TemaNaoEncontradoException,
     TemaNaoProntoException,
+    TrilhaLimiteExcedidoException,
 )
 from app.models.materia import Materia
 from app.models.modulo import STATUS_GERANDO as MODULO_STATUS_GERANDO
@@ -69,10 +70,27 @@ def _commit_com_ordem(repo, ordem: int) -> None:
 # --- Matéria ---
 
 
-def criar_materia(nome: str, descricao: str | None, materia_repo: MateriaRepository) -> Materia:
+def criar_materia(
+    nome: str,
+    descricao: str | None,
+    materia_repo: MateriaRepository,
+    *,
+    owner_user_id: str | None = None,
+    limite_trilhas: int | None = None,
+) -> Materia:
     """Matérias have no `ordem` - they're siblings (Matemática, Física, ...),
-    not a sequence. Ordering starts one level down, at tema (see `criar_tema`)."""
-    materia = Materia(nome=nome, descricao=descricao)
+    not a sequence. Ordering starts one level down, at tema (see `criar_tema`).
+
+    `owner_user_id=None` (the default) creates global, admin-curated content -
+    unchanged behavior. A non-`None` value creates a student's own personal
+    trilha instead, capped at `limite_trilhas` (required whenever
+    `owner_user_id` is set - see `Settings.TRILHAS_MAX_POR_USUARIO`)."""
+    if owner_user_id is not None:
+        assert limite_trilhas is not None, "limite_trilhas é obrigatório para trilha pessoal"
+        if materia_repo.count_by_owner(owner_user_id) >= limite_trilhas:
+            raise TrilhaLimiteExcedidoException(limite_trilhas)
+
+    materia = Materia(nome=nome, descricao=descricao, owner_user_id=owner_user_id)
     materia_repo.add(materia)
     materia_repo.commit()
     materia_repo.refresh(materia)
