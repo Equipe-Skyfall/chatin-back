@@ -36,6 +36,7 @@ internal `GeminiProvider` instance - migrating them to the same persistent
 
 import asyncio
 import logging
+import threading
 import uuid
 from datetime import UTC, datetime
 
@@ -118,8 +119,27 @@ class AdkProvider(AIProvider):
         )
         # The admin agent's own session store - persistent, unlike the
         # throwaway sessions the other methods above use, since its history
-        # (tool calls included) needs to survive across HTTP requests.
+        # (tool calls included) needs to survive across HTTP requests. Its
+        # async engine (asyncpg) binds its connection pool to whichever event
+        # loop is running the first time it's actually used - `asyncio.run()`
+        # tears its loop down after every call, so a *second* call from a
+        # different `asyncio.run()` would hand the pool a dead loop
+        # ("attached to a different loop"). A single background thread
+        # running one event loop for this provider's whole lifetime is what
+        # lets the engine be used safely across many HTTP requests.
         self._agente_session_service = DatabaseSessionService(db_url=settings.adk_session_db_url)
+        self._agente_loop = asyncio.new_event_loop()
+        self._agente_loop_thread = threading.Thread(
+            target=self._agente_loop.run_forever, daemon=True
+        )
+        self._agente_loop_thread.start()
+
+    def _run_no_loop_do_agente(self, coro):
+        """Runs `coro` on the dedicated background loop (see `__init__`) and
+        blocks the calling (sync) thread until it's done - the only safe way
+        to drive `self._agente_session_service`'s async engine from more than
+        one request."""
+        return asyncio.run_coroutine_threadsafe(coro, self._agente_loop).result()
 
     # --- single-turn ADK invocation helper ---
 
@@ -371,7 +391,7 @@ class AdkProvider(AIProvider):
             return texto_final
 
         try:
-            return asyncio.run(_run())
+            return self._run_no_loop_do_agente(_run())
         except LlmCallsLimitExceededError as exc:
             raise AgenteLimiteExcedidoException() from exc
         except ProvedorIAIndisponivelException:
@@ -398,7 +418,7 @@ class AdkProvider(AIProvider):
                     mensagens.append(mensagem)
             return mensagens
 
-        return asyncio.run(_run())
+        return self._run_no_loop_do_agente(_run())
 
     @staticmethod
     def _event_para_mensagem_historico(event) -> MensagemHistorico | None:  # noqa: ANN001
