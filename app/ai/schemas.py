@@ -4,8 +4,17 @@ Services depend on these, never on a concrete provider's SDK response objects -
 that's what makes swapping the concrete strategy a no-op for callers.
 """
 
+import uuid
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from app.ai.base import AIProvider
+    from app.repositories.materia_repository import MateriaRepository
+    from app.repositories.modulo_repository import ModuloRepository
+    from app.repositories.questionario_repository import QuestionarioRepository
+    from app.repositories.tema_repository import TemaRepository
 
 Letra = Literal["A", "B", "C", "D", "E"]
 
@@ -101,3 +110,35 @@ class MensagemAgente:
         None  # set on a "tool" message: which call this is the result of
     )
     nome_ferramenta: str | None = None  # set on a "tool" message
+
+
+@dataclass
+class FerramentaContexto:
+    """Per-request context the admin agent's tools need to execute - repos,
+    the AI provider itself (some tools trigger further AI generation, e.g.
+    `criar_tema` kicking off `buscar_fontes`), the questionário pool size, and
+    the id of the `Conversa` this turn belongs to. A provider that keeps its
+    own persistent conversation session (e.g. `AdkProvider`'s ADK
+    `SessionService`) keys that session off `conversa_id`."""
+
+    materia_repo: "MateriaRepository"
+    tema_repo: "TemaRepository"
+    modulo_repo: "ModuloRepository"
+    questionario_repo: "QuestionarioRepository"
+    ai_provider: "AIProvider"
+    pool_size: int
+    conversa_id: uuid.UUID
+
+
+@dataclass(frozen=True)
+class MensagemHistorico:
+    """One turn of a persisted conversation, read back out of wherever a
+    provider actually keeps history - e.g. `AdkProvider` translates ADK
+    `Event`s into these to serve the admin chat's history endpoint without
+    that endpoint needing to know anything about the ADK's own types."""
+
+    id: uuid.UUID
+    papel: Literal["user", "assistant", "tool"]
+    conteudo: str | None
+    chamadas_ferramentas: list[dict[str, Any]] | None
+    created_at: datetime

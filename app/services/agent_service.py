@@ -1,44 +1,24 @@
-"""The tool-calling loop for the admin content-creation chat.
+"""The admin content-creation chat: persists the user's message, asks the
+`AIProvider` for a final reply, and persists that reply. The provider owns
+running its own tool-calling loop now (manually, for the legacy
+`GeminiProvider`; via the ADK `Runner`'s native auto-invoke, for
+`AdkProvider`) - this module no longer dispatches tool calls or tracks an
+iteration cap itself; see `AIProvider.conversar_com_ferramentas`.
 
-Each turn: persist the user's message, ask the AI provider for a reply, and if
-it requests tool calls, dispatch them via `agent_tools.executar_ferramenta`,
-persist both the assistant's tool-call message and each tool's result, and
-loop - until the provider returns a final text reply (or a safety cap on
-round-trips is hit).
+Per-tool-call granularity is no longer persisted here: only the user's
+message and the agent's final reply become `Mensagem` rows. A provider that
+keeps its own session (e.g. `AdkProvider`'s ADK `SessionService`) is the
+source of truth for that finer-grained history when `AI_PROVIDER=adk`.
 """
 
 from app.ai.base import AIProvider
-from app.ai.schemas import ChamadaFerramenta, MensagemAgente
-from app.core.exceptions import AgenteLimiteExcedidoException
-from app.models.conversa import (
-    PAPEL_ASSISTENTE,
-    PAPEL_FERRAMENTA,
-    PAPEL_USUARIO,
-    Conversa,
-    Mensagem,
-)
+from app.ai.schemas import FerramentaContexto, MensagemAgente
+from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, Conversa, Mensagem
 from app.repositories.conversa_repository import ConversaRepository
-from app.services.agent_tools import TOOLS, FerramentaContexto, executar_ferramenta
 
 
 def _mensagem_para_agente(mensagem: Mensagem) -> MensagemAgente:
-    if mensagem.papel == PAPEL_ASSISTENTE:
-        chamadas = [
-            ChamadaFerramenta(id=c["id"], nome=c["nome"], argumentos=c.get("argumentos", {}))
-            for c in (mensagem.chamadas_ferramentas or [])
-        ]
-        return MensagemAgente(
-            papel=PAPEL_ASSISTENTE, conteudo=mensagem.conteudo, chamadas_ferramentas=chamadas
-        )
-    if mensagem.papel == PAPEL_FERRAMENTA:
-        info = (mensagem.chamadas_ferramentas or [{}])[0]
-        return MensagemAgente(
-            papel=PAPEL_FERRAMENTA,
-            conteudo=mensagem.conteudo,
-            nome_ferramenta=info.get("nome"),
-            chamada_ferramenta_id=info.get("id"),
-        )
-    return MensagemAgente(papel=PAPEL_USUARIO, conteudo=mensagem.conteudo)
+    return MensagemAgente(papel=mensagem.papel, conteudo=mensagem.conteudo)
 
 
 def processar_mensagem(
@@ -47,61 +27,25 @@ def processar_mensagem(
     conversa_repo: ConversaRepository,
     ctx: FerramentaContexto,
     ai_provider: AIProvider,
-    max_iteracoes: int,
 ) -> str:
-    """Persists the user's message, runs the tool-calling loop (persisting
-    every assistant/tool turn along the way), and returns the final reply."""
+    """Persists the user's message, asks the provider for the final reply
+    (running its own tool-calling loop internally), persists that reply, and
+    returns it."""
 
-    def _salvar(papel: str, conteudo: str | None, chamadas: list[dict] | None) -> None:
+    def _salvar(papel: str, conteudo: str | None) -> None:
         ordem = conversa_repo.proxima_ordem(conversa.id)
         conversa_repo.add_mensagem(
-            Mensagem(
-                conversa_id=conversa.id,
-                papel=papel,
-                conteudo=conteudo,
-                chamadas_ferramentas=chamadas,
-                ordem=ordem,
-            )
+            Mensagem(conversa_id=conversa.id, papel=papel, conteudo=conteudo, ordem=ordem)
         )
         conversa_repo.commit()
 
-    _salvar(PAPEL_USUARIO, texto_usuario, None)
+    _salvar(PAPEL_USUARIO, texto_usuario)
     recarregada = conversa_repo.get_with_mensagens(conversa.id)
     historico = [_mensagem_para_agente(m) for m in recarregada.mensagens]
 
-    for _ in range(max_iteracoes):
-        resposta = ai_provider.conversar_com_ferramentas(historico, TOOLS)
+    resposta = ai_provider.conversar_com_ferramentas(historico, ctx)
 
-        if resposta.chamadas_ferramentas:
-            chamadas_serializadas = [
-                {"id": c.id, "nome": c.nome, "argumentos": c.argumentos}
-                for c in resposta.chamadas_ferramentas
-            ]
-            _salvar(PAPEL_ASSISTENTE, resposta.texto, chamadas_serializadas)
-            historico.append(
-                MensagemAgente(
-                    papel=PAPEL_ASSISTENTE,
-                    conteudo=resposta.texto,
-                    chamadas_ferramentas=resposta.chamadas_ferramentas,
-                )
-            )
-
-            for chamada in resposta.chamadas_ferramentas:
-                resultado = executar_ferramenta(chamada.nome, chamada.argumentos, ctx)
-                _salvar(PAPEL_FERRAMENTA, resultado, [{"id": chamada.id, "nome": chamada.nome}])
-                historico.append(
-                    MensagemAgente(
-                        papel=PAPEL_FERRAMENTA,
-                        conteudo=resultado,
-                        nome_ferramenta=chamada.nome,
-                        chamada_ferramenta_id=chamada.id,
-                    )
-                )
-            continue
-
-        _salvar(PAPEL_ASSISTENTE, resposta.texto, None)
-        conversa_repo.tocar(conversa.id)
-        conversa_repo.commit()
-        return resposta.texto or ""
-
-    raise AgenteLimiteExcedidoException()
+    _salvar(PAPEL_ASSISTENTE, resposta)
+    conversa_repo.tocar(conversa.id)
+    conversa_repo.commit()
+    return resposta

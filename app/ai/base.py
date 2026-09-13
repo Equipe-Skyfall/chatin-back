@@ -11,12 +11,11 @@ from abc import ABC, abstractmethod
 
 from app.ai.schemas import (
     ConteudoGerado,
-    FerramentaDeclaracao,
+    FerramentaContexto,
     FonteEncontrada,
     MensagemAgente,
     PlanoModulos,
     QuestionarioGerado,
-    RespostaAgente,
 )
 
 
@@ -66,11 +65,14 @@ class AIProvider(ABC):
 
     @abstractmethod
     def conversar_com_ferramentas(
-        self, mensagens: list[MensagemAgente], ferramentas: list[FerramentaDeclaracao]
-    ) -> RespostaAgente:
-        """One turn of a tool-calling chat: given the conversation so far and
-        the tools available, return either a final text reply or the tool
-        call(s) the agent wants executed next."""
+        self, mensagens: list[MensagemAgente], ctx: FerramentaContexto
+    ) -> str:
+        """Runs the admin agent's full tool-calling loop - as many
+        model<->tool round trips as needed, up to the provider's own
+        iteration cap - and returns the final text reply. `ctx` carries what
+        the tools need to actually execute (repos, the AI provider, the
+        questionário pool size, the conversation id); the provider owns
+        building/invoking the tools now, not just declaring them."""
 
     @abstractmethod
     def responder_pergunta_aluno(

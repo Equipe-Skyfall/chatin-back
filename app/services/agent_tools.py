@@ -7,27 +7,11 @@ between Gemini's function-call args and `curriculo_service`'s parameters.
 
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
-from app.ai.base import AIProvider
-from app.ai.schemas import FerramentaDeclaracao
+from app.ai.schemas import FerramentaContexto, FerramentaDeclaracao
 from app.core.exceptions import AppException
-from app.repositories.materia_repository import MateriaRepository
-from app.repositories.modulo_repository import ModuloRepository
-from app.repositories.questionario_repository import QuestionarioRepository
-from app.repositories.tema_repository import TemaRepository
 from app.services import curriculo_service
-
-
-@dataclass
-class FerramentaContexto:
-    materia_repo: MateriaRepository
-    tema_repo: TemaRepository
-    modulo_repo: ModuloRepository
-    questionario_repo: QuestionarioRepository
-    ai_provider: AIProvider
-    pool_size: int
 
 
 def _uid(valor: str) -> uuid.UUID:

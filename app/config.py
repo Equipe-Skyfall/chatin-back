@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,8 +16,11 @@ class Settings(BaseSettings):
     JWT_SECRET: str
     JWT_ALGORITHM: str = "HS256"
 
-    # AI provider (strategy selection)
-    AI_PROVIDER: str = "gemini"
+    # AI provider (strategy selection) - "adk" migrates gerar_questionario/
+    # planejar_modulos to Google ADK with a Pydantic output_schema (Fase 1 of
+    # the ADK migration); everything else still runs through GeminiProvider
+    # under the hood either way. "gemini" is kept as an instant rollback.
+    AI_PROVIDER: Literal["gemini", "adk"] = "gemini"
     GEMINI_API_KEY: str
     GEMINI_MODEL_CONTEUDO: str = "gemini-2.5-flash"
     GEMINI_MODEL_QUESTIONARIO: str = "gemini-2.5-flash"
@@ -38,6 +42,18 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def adk_session_db_url(self) -> str:
+        """`SUPABASE_DB_URL` with its driver swapped for an async one -
+        the ADK's `DatabaseSessionService` (used by `AdkProvider` for the
+        admin agent's conversation history) requires an async SQLAlchemy
+        engine, while every other repository in this app stays on the
+        synchronous `psycopg` engine. This is the one place that engine
+        needs to exist, isolated from the rest of the app."""
+        scheme, rest = self.SUPABASE_DB_URL.split("://", 1)
+        backend = scheme.split("+", 1)[0]
+        return f"{backend}+asyncpg://{rest}"
 
 
 @lru_cache
