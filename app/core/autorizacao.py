@@ -3,7 +3,7 @@
 namespaces: the global, admin-curated curriculum (`owner_user_id is None`,
 visible to every authenticated user, mutable only by admins - unchanged
 behavior) and a student's own personal trilha (visible/mutable only by that
-student, capped at `Settings.TRILHAS_MAX_POR_USUARIO`).
+student, no limit on how many they can create).
 
 Every router handler that reads or writes something reachable from a
 `Materia` must call the matching function here before proceeding - there is

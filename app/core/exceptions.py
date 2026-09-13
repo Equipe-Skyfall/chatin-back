@@ -110,12 +110,6 @@ class OrdemDuplicadaException(AppException):
         )
 
 
-class TrilhaLimiteExcedidoException(AppException):
-    status_code = 409
-
-    def __init__(self, limite: int):
-        super().__init__(f"Você já atingiu o limite de {limite} trilhas pessoais.")
-
 
 # --- 403s (access / lock state) ---
 

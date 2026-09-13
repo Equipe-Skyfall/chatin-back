@@ -18,8 +18,8 @@ class Materia(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     `owner_user_id` is `NULL` for the global, admin-curated curriculum (the
     original and still the only content every student sees by default) - a
-    non-`NULL` value marks this as a student's own personal trilha (see
-    `curriculo_service.criar_materia`'s cap of `TRILHAS_MAX_POR_USUARIO`).
+    non-`NULL` value marks this as a student's own personal trilha (no limit
+    on how many a student can create - see `curriculo_service.criar_materia`).
     `nome` is only unique *within* its own namespace: two students (or a
     student and the global curriculum) can each have a "Extensivo ENEM"
     without colliding - see the partial/composite unique indexes below.

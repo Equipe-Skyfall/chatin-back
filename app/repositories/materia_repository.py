@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 
 from app.db.session import DbSession
@@ -55,10 +55,6 @@ class MateriaRepository(SqlAlchemyRepository[Materia]):
             .order_by(Materia.nome)
         )
         return list(self.db.execute(stmt).scalars().unique().all())
-
-    def count_by_owner(self, user_id: str) -> int:
-        stmt = select(func.count()).select_from(Materia).where(Materia.owner_user_id == user_id)
-        return self.db.execute(stmt).scalar_one()
 
     def get_by_nome(self, nome: str) -> Materia | None:
         stmt = select(Materia).where(Materia.nome == nome)

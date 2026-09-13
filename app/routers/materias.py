@@ -4,7 +4,7 @@ from fastapi import APIRouter, status
 
 from app.core.autorizacao import is_admin, verificar_acesso_escrita, verificar_acesso_leitura
 from app.core.exceptions import MateriaNaoEncontradaException
-from app.deps import CurrentUserId, MateriaRepo, SettingsDep, TokenPayloadDep
+from app.deps import CurrentUserId, MateriaRepo, TokenPayloadDep
 from app.models.materia import Materia
 from app.schemas.materia import MateriaCreate, MateriaOut, MateriaUpdate
 from app.services import curriculo_service
@@ -14,23 +14,15 @@ router = APIRouter(prefix="/materias", tags=["materias"])
 
 @router.post("", response_model=MateriaOut, status_code=status.HTTP_201_CREATED)
 def criar_materia(
-    body: MateriaCreate,
-    user_id: CurrentUserId,
-    payload: TokenPayloadDep,
-    repo: MateriaRepo,
-    settings: SettingsDep,
+    body: MateriaCreate, user_id: CurrentUserId, payload: TokenPayloadDep, repo: MateriaRepo
 ) -> Materia:
     """An admin creates global, shared curriculum content (unchanged
     behavior). Any other authenticated user creates their own personal
-    trilha instead - capped at `settings.TRILHAS_MAX_POR_USUARIO`."""
+    trilha instead - no limit on how many."""
     if is_admin(payload):
         return curriculo_service.criar_materia(body.nome, body.descricao, repo)
     return curriculo_service.criar_materia(
-        body.nome,
-        body.descricao,
-        repo,
-        owner_user_id=user_id,
-        limite_trilhas=settings.TRILHAS_MAX_POR_USUARIO,
+        body.nome, body.descricao, repo, owner_user_id=user_id
     )
 
 
