@@ -20,4 +20,11 @@ class MateriaOut(BaseModel):
     id: UUID
     nome: str
     descricao: str | None
+    owner_user_id: str | None = Field(
+        None,
+        description=(
+            "None = currículo global (curado pelo admin). Caso contrário, é a trilha "
+            "pessoal do usuário dono."
+        ),
+    )
     created_at: datetime
