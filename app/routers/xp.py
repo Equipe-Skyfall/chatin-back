@@ -2,8 +2,9 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
+from app.core.autorizacao import verificar_acesso_leitura
 from app.core.exceptions import MateriaNaoEncontradaException
-from app.deps import CurrentUserId, MateriaRepo, PerfilRepo, XpRepo
+from app.deps import CurrentUserId, MateriaRepo, PerfilRepo, TokenPayloadDep, XpRepo
 from app.schemas.xp import MeuXpOut, RankingEntradaOut, RankingOut, XpPorMateriaOut
 from app.services import xp_service
 
@@ -13,7 +14,7 @@ router = APIRouter(tags=["xp"])
 @router.get("/xp/meu", response_model=MeuXpOut)
 def meu_xp(user_id: CurrentUserId, xp_repo: XpRepo, materia_repo: MateriaRepo) -> MeuXpOut:
     por_materia = []
-    for materia in materia_repo.list_all():
+    for materia in materia_repo.list_visiveis(user_id):
         xp = xp_repo.total_por_usuario_e_materia(user_id, materia.id)
         if xp > 0:
             por_materia.append(
@@ -47,14 +48,17 @@ def ranking_global(
 @router.get("/ranking/materias/{materia_id}", response_model=RankingOut)
 def ranking_por_materia(
     materia_id: UUID,
-    user_id: CurrentUserId,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
     xp_repo: XpRepo,
     materia_repo: MateriaRepo,
     perfil_repo: PerfilRepo,
     limit: int = 20,
 ) -> RankingOut:
-    if materia_repo.get(materia_id) is None:
+    materia = materia_repo.get(materia_id)
+    if materia is None:
         raise MateriaNaoEncontradaException(materia_id)
+    verificar_acesso_leitura(materia, payload)
     entradas = xp_repo.ranking_por_materia(materia_id, limit)
     nomes = perfil_repo.nomes_por_ids([uid for uid, _ in entradas])
     return RankingOut(
