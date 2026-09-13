@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     TENTATIVA_NUM_QUESTOES: int = 5
     PONTUACAO_MINIMA_APROVACAO: float = 60.0
     AGENTE_MAX_ITERACOES: int = 8  # safety cap on tool-call round-trips per chat turn
+    TRILHAS_MAX_POR_USUARIO: int = 3  # cap on personal (non-admin) matérias per student
 
     # App
     ENV: str = "local"
