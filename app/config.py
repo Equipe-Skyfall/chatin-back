@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     PONTUACAO_MINIMA_APROVACAO: float = 60.0
     AGENTE_MAX_ITERACOES: int = 8  # safety cap on tool-call round-trips per chat turn
 
+    # Chat memory cache (Redis) - optional: unset means the cache is disabled
+    # and the student chat always falls back to reloading from Postgres.
+    REDIS_URL: str | None = None
+    MEMORIA_JANELA_MENSAGENS: int = 20  # recent messages kept in the cache per conversa
+
     # App
     ENV: str = "local"
     LOG_LEVEL: str = "INFO"
