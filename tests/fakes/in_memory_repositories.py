@@ -5,6 +5,7 @@ dicts/lists instead of a database. Used by service-layer unit tests
 
 import uuid
 
+from app.models.conversa import Conversa, Mensagem
 from app.models.progresso import STATUS_DISPONIVEL, ProgressoUsuario
 from app.models.questao import Questao
 from app.models.questionario import Questionario
@@ -37,6 +38,23 @@ class InMemoryModuloRepository:
 
     def commit(self) -> None:
         pass
+
+
+class InMemoryConversaRepository:
+    """Only what `historico_cache`'s Postgres fallback needs -
+    `get_with_mensagens`, seeded directly with a `mensagens` list."""
+
+    def __init__(self):
+        self.db = _FakeSession()
+        self._conversas: dict[uuid.UUID, Conversa] = {}
+
+    def seed(self, conversa_id: uuid.UUID, mensagens: list[Mensagem]) -> None:
+        conversa = Conversa(id=conversa_id)
+        conversa.mensagens = mensagens
+        self._conversas[conversa_id] = conversa
+
+    def get_with_mensagens(self, conversa_id: uuid.UUID) -> Conversa | None:
+        return self._conversas.get(conversa_id)
 
 
 class InMemoryQuestionarioRepository:
