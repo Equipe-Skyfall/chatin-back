@@ -6,16 +6,15 @@ conversation is scoped to one) plus its own message history.
 
 from datetime import UTC, datetime
 
+import redis
+
 from app.ai.base import AIProvider
 from app.ai.schemas import MensagemAgente
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, Conversa, Mensagem
 from app.repositories.conversa_repository import ConversaRepository
 from app.repositories.modulo_repository import ModuloRepository
-
-
-def _mensagem_para_historico(mensagem: Mensagem) -> MensagemAgente:
-    papel = PAPEL_ASSISTENTE if mensagem.papel == PAPEL_ASSISTENTE else PAPEL_USUARIO
-    return MensagemAgente(papel=papel, conteudo=mensagem.conteudo)
+from app.services import historico_cache
+from app.services.historico_cache import mensagem_para_historico
 
 
 def enviar_mensagem(
@@ -24,6 +23,8 @@ def enviar_mensagem(
     conversa_repo: ConversaRepository,
     modulo_repo: ModuloRepository,
     ai_provider: AIProvider,
+    redis_cliente: redis.Redis | None,
+    memoria_janela: int,
 ) -> str:
     def _salvar(papel: str, conteudo: str) -> None:
         ordem = conversa_repo.proxima_ordem(conversa.id)
@@ -32,10 +33,21 @@ def enviar_mensagem(
         )
         conversa_repo.commit()
 
+    # Read the window *before* saving this turn's user message, so it never
+    # includes it - `texto_usuario` is passed to the provider separately. See
+    # `historico_cache` for the Redis cache this reads from (falling back to,
+    # and repopulating from, Postgres on a miss/outage).
+    historico = historico_cache.obter_historico_recente(
+        conversa.id, conversa_repo, redis_cliente, memoria_janela
+    )
+
     _salvar(PAPEL_USUARIO, texto_usuario)
-    recarregada = conversa_repo.get_with_mensagens(conversa.id)
-    # every message except the one just saved above, which is passed as `pergunta`
-    historico = [_mensagem_para_historico(m) for m in recarregada.mensagens[:-1]]
+    historico_cache.registrar_mensagem(
+        conversa.id,
+        MensagemAgente(papel=PAPEL_USUARIO, conteudo=texto_usuario),
+        redis_cliente,
+        memoria_janela,
+    )
 
     conteudo_modulo = None
     if conversa.modulo_id is not None:
@@ -45,6 +57,12 @@ def enviar_mensagem(
 
     resposta = ai_provider.responder_pergunta_aluno(historico, texto_usuario, conteudo_modulo)
     _salvar(PAPEL_ASSISTENTE, resposta)
+    historico_cache.registrar_mensagem(
+        conversa.id,
+        MensagemAgente(papel=PAPEL_ASSISTENTE, conteudo=resposta),
+        redis_cliente,
+        memoria_janela,
+    )
     conversa_repo.tocar(conversa.id)
     conversa_repo.commit()
     return resposta
@@ -69,7 +87,7 @@ def obter_ou_gerar_resumo(
     if not completa.mensagens:
         return None
 
-    historico = [_mensagem_para_historico(m) for m in completa.mensagens]
+    historico = [mensagem_para_historico(m) for m in completa.mensagens]
     resumo = ai_provider.resumir_conversa(historico)
     completa.resumo = resumo
     completa.resumo_gerado_em = datetime.now(UTC)
