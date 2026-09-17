@@ -33,6 +33,7 @@ from app.ai.schemas import (
     AlternativaGerada,
     ChamadaFerramenta,
     ConteudoGerado,
+    FerramentaContexto,
     FerramentaDeclaracao,
     FonteEncontrada,
     MensagemAgente,
@@ -43,7 +44,7 @@ from app.ai.schemas import (
     RespostaAgente,
 )
 from app.config import Settings
-from app.core.exceptions import ProvedorIAIndisponivelException
+from app.core.exceptions import AgenteLimiteExcedidoException, ProvedorIAIndisponivelException
 
 logger = logging.getLogger(__name__)
 
@@ -298,8 +299,55 @@ class GeminiProvider(AIProvider):
             ModuloPlanejado(titulo=item["titulo"], descricao=item["descricao"]) for item in data
         ]
 
-    @_retry_agente
     def conversar_com_ferramentas(
+        self, mensagens: list[MensagemAgente], ctx: FerramentaContexto
+    ) -> str:
+        """Runs the admin agent's tool-calling loop manually - one
+        `_conversar_um_turno` call per round trip, dispatching any requested
+        tool calls via `agent_tools.executar_ferramenta` and feeding the
+        result back in, until a final text reply comes back or
+        `AGENTE_MAX_ITERACOES` round trips are used up. This is the loop that
+        used to live in `app/services/agent_service.py` - it moved here
+        because `AIProvider.conversar_com_ferramentas` now owns running the
+        whole loop (so `AdkProvider` can hand it off to the ADK `Runner`
+        instead), not just one round trip."""
+        # Local import: `agent_tools` depends on `curriculo_service`, which in
+        # turn touches most of the domain - importing it at module level here
+        # would make `app.ai` depend on `app.services`, inverting the
+        # intended dependency direction (services depend on `app.ai`, not the
+        # other way around). This is the one place a concrete provider needs
+        # the tool dispatcher itself, not just tool declarations.
+        from app.services.agent_tools import TOOLS, executar_ferramenta
+
+        historico = list(mensagens)
+        for _ in range(self._settings.AGENTE_MAX_ITERACOES):
+            resposta = self._conversar_um_turno(historico, TOOLS)
+
+            if not resposta.chamadas_ferramentas:
+                return resposta.texto or ""
+
+            historico.append(
+                MensagemAgente(
+                    papel="assistant",
+                    conteudo=resposta.texto,
+                    chamadas_ferramentas=resposta.chamadas_ferramentas,
+                )
+            )
+            for chamada in resposta.chamadas_ferramentas:
+                resultado = executar_ferramenta(chamada.nome, chamada.argumentos, ctx)
+                historico.append(
+                    MensagemAgente(
+                        papel="tool",
+                        conteudo=resultado,
+                        nome_ferramenta=chamada.nome,
+                        chamada_ferramenta_id=chamada.id,
+                    )
+                )
+
+        raise AgenteLimiteExcedidoException()
+
+    @_retry_agente
+    def _conversar_um_turno(
         self, mensagens: list[MensagemAgente], ferramentas: list[FerramentaDeclaracao]
     ) -> RespostaAgente:
         tool = types.Tool(

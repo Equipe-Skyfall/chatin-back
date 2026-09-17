@@ -13,6 +13,7 @@ import redis
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from app.ai.adk_provider import AdkProvider
 from app.ai.base import AIProvider
 from app.ai.gemini_provider import GeminiProvider
 from app.config import Settings, get_settings
@@ -102,6 +103,8 @@ def get_ai_provider() -> AIProvider:
     dependency without it being mistaken for a request param.
     """
     settings = get_settings()
+    if settings.AI_PROVIDER == "adk":
+        return AdkProvider(settings)
     if settings.AI_PROVIDER == "gemini":
         return GeminiProvider(settings)
     raise ValueError(f"Provedor de IA desconhecido: {settings.AI_PROVIDER}")

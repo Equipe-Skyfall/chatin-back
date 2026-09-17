@@ -2,6 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
+from app.ai.adk_provider import AdkProvider
+from app.ai.schemas import FerramentaContexto
 from app.core.exceptions import ConversaNaoEncontradaException
 from app.deps import (
     AdminUserId,
@@ -16,7 +18,6 @@ from app.deps import (
 from app.models.conversa import TIPO_ADMIN, Conversa
 from app.schemas.chat import ChatMensagemInput, ChatRespostaOut, ConversaOut, MensagemOut
 from app.services import agent_service
-from app.services.agent_tools import FerramentaContexto
 
 router = APIRouter(prefix="/admin/chat", tags=["chat"])
 
@@ -50,9 +51,10 @@ def enviar_mensagem(
         questionario_repo=questionario_repo,
         ai_provider=ai_provider,
         pool_size=settings.QUESTIONARIO_POOL_SIZE,
+        conversa_id=conversa.id,
     )
     resposta = agent_service.processar_mensagem(
-        conversa, body.texto, conversa_repo, ctx, ai_provider, settings.AGENTE_MAX_ITERACOES
+        conversa, body.texto, conversa_repo, ctx, ai_provider
     )
     return ChatRespostaOut(conversa_id=conversa.id, resposta=resposta)
 
@@ -63,8 +65,17 @@ def listar_conversas(admin_id: AdminUserId, conversa_repo: ConversaRepo) -> list
 
 
 @router.get("/{conversa_id}", response_model=list[MensagemOut])
-def obter_historico(conversa_id: UUID, admin_id: AdminUserId, conversa_repo: ConversaRepo) -> list:
+def obter_historico(
+    conversa_id: UUID,
+    admin_id: AdminUserId,
+    conversa_repo: ConversaRepo,
+    ai_provider: AiProviderDep,
+) -> list:
     conversa = conversa_repo.get_with_mensagens(conversa_id)
     if conversa is None or conversa.user_id != admin_id or conversa.tipo != TIPO_ADMIN:
         raise ConversaNaoEncontradaException(conversa_id)
+    if isinstance(ai_provider, AdkProvider):
+        historico_adk = ai_provider.obter_historico_sessao(conversa_id)
+        if historico_adk is not None:
+            return historico_adk
     return conversa.mensagens

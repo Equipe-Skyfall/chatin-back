@@ -2,14 +2,13 @@ from app.ai.base import AIProvider
 from app.ai.schemas import (
     AlternativaGerada,
     ConteudoGerado,
-    FerramentaDeclaracao,
+    FerramentaContexto,
     FonteEncontrada,
     MensagemAgente,
     ModuloPlanejado,
     PlanoModulos,
     QuestaoGerada,
     QuestionarioGerado,
-    RespostaAgente,
 )
 
 
@@ -33,7 +32,9 @@ class FakeAIProvider(AIProvider):
         self.conteudo_ja_coberto_recebido: list[list[str] | None] = []
         self.instrucoes_regeneracao_recebidas: list[str | None] = []
         self.plano_fixo: PlanoModulos | None = None
-        self.resposta_agente_fixa: RespostaAgente | None = None
+        self.resposta_agente_fixa: str | None = None
+        self.falhar_conversar_com_ferramentas = False
+        self.ctx_recebido: FerramentaContexto | None = None
         self.responder_pergunta_aluno_calls = 0
         self.resumir_conversa_calls = 0
         self.conteudos_modulo_recebidos: list[str | None] = []
@@ -117,12 +118,15 @@ class FakeAIProvider(AIProvider):
         return PlanoModulos(modulos=modulos, modelo="fake-model")
 
     def conversar_com_ferramentas(
-        self, mensagens: list[MensagemAgente], ferramentas: list[FerramentaDeclaracao]
-    ) -> RespostaAgente:
+        self, mensagens: list[MensagemAgente], ctx: FerramentaContexto
+    ) -> str:
         self.conversar_com_ferramentas_calls += 1
+        self.ctx_recebido = ctx
+        if self.falhar_conversar_com_ferramentas:
+            raise RuntimeError("falha simulada na conversa com ferramentas")
         if self.resposta_agente_fixa is not None:
             return self.resposta_agente_fixa
-        return RespostaAgente(texto="Resposta de teste.", chamadas_ferramentas=[])
+        return "Resposta de teste."
 
     def responder_pergunta_aluno(
         self,
