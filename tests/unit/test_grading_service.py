@@ -219,9 +219,9 @@ def test_iniciar_tentativa_duas_vezes_sem_concluir_retoma_a_mesma(
 def test_iniciar_tentativa_tema_retoma_tentativa_de_modulo_em_andamento(
     questionario_repo, tentativa_repo
 ):
-    """The 1-active-attempt limit is global - starting a different kind of
-    quiz (tema review) while a módulo attempt is in progress resumes that
-    módulo attempt instead of starting a second one."""
+    """The 1-open-questionário limit is global - starting a different kind
+    of quiz (tema review) while a módulo attempt is open resumes that módulo
+    attempt instead of starting a second one."""
     questionario, _, _ = _seed_pool(questionario_repo, num_questoes=12)
     tema_id = uuid.uuid4()
     questionario_repo.seed_pool_tema(

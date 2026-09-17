@@ -29,13 +29,15 @@ from app.schemas.tentativa import RespostaInput, RespostaResultadoOut
 from app.services import dificuldade_service
 
 
-def _tentativa_em_andamento_como_lista(
+def _questionario_aberto_como_lista(
     tentativa: Tentativa, questionario_repo: QuestionarioRepository
 ) -> tuple[Tentativa, list[Questao]]:
     """Reconstructs the (tentativa, questões) shape `iniciar_tentativa*`
-    returns, from an already-in-progress attempt's fixed sample - used to
-    resume instead of starting a second one (see the 1-active-attempt limit
-    in `iniciar_tentativa`/`iniciar_tentativa_tema`)."""
+    returns, from an already-open questionário's fixed sample - used to force
+    resuming it instead of starting a second one (see the 1-open-questionário
+    limit in `iniciar_tentativa_com_pool`). A questionário left open by a
+    student who never came back to finish it still counts - that's the whole
+    point of the limit, not a gap in it."""
     itens = sorted(tentativa.questoes_selecionadas, key=lambda i: i.ordem)
     questoes = questionario_repo.get_questoes_by_ids([i.questao_id for i in itens])
     ordem_map = {i.questao_id: i.ordem for i in itens}
@@ -54,9 +56,16 @@ def iniciar_tentativa_com_pool(
     tema_id: uuid.UUID | None,
     pratica: bool = False,
 ) -> tuple[Tentativa, list[Questao]]:
-    em_andamento = tentativa_repo.get_em_andamento_by_user(user_id)
-    if em_andamento is not None:
-        return _tentativa_em_andamento_como_lista(em_andamento, questionario_repo)
+    """Shared by `iniciar_tentativa`, `iniciar_tentativa_tema` and
+    `questionario_personalizado_service` - whichever of the three is asked
+    for, a student is only ever allowed 1 open (unfinished) questionário at a
+    time: if they already have one - any scope, whether they're actively
+    working on it or abandoned it mid-way (see
+    `TentativaRepository.get_questionario_aberto_by_user`) - this forces
+    resuming it instead of sampling a new pool."""
+    questionario_aberto = tentativa_repo.get_questionario_aberto_by_user(user_id)
+    if questionario_aberto is not None:
+        return _questionario_aberto_como_lista(questionario_aberto, questionario_repo)
 
     quantidade = min(num_questoes, len(pool_ids))
 

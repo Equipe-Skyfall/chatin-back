@@ -147,7 +147,7 @@ class InMemoryTentativaRepository:
     def get_tentativa_questao_ids(self, tentativa_id: uuid.UUID) -> set[uuid.UUID]:
         return set(self._questoes_por_tentativa.get(tentativa_id, set()))
 
-    def get_em_andamento_by_user(self, user_id: str) -> Tentativa | None:
+    def get_questionario_aberto_by_user(self, user_id: str) -> Tentativa | None:
         for tentativa in self.tentativas.values():
             if tentativa.user_id == user_id and tentativa.status == STATUS_EM_ANDAMENTO:
                 return tentativa

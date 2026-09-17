@@ -20,11 +20,14 @@ from app.repositories.base import SqlAlchemyRepository
 class TentativaRepository(SqlAlchemyRepository[Tentativa]):
     model = Tentativa
 
-    def get_em_andamento_by_user(self, user_id: str) -> Tentativa | None:
-        """The student's single in-progress attempt, if any - regardless of
-        scope (módulo, tema-review, or personalized). Backs the 1-active-
-        attempt-at-a-time limit: `grading_service` resumes this instead of
-        starting a new one."""
+    def get_questionario_aberto_by_user(self, user_id: str) -> Tentativa | None:
+        """The student's single open (unfinished) questionário, if any -
+        regardless of scope (módulo, tema-review, or personalized), and
+        regardless of whether the student ever comes back to finish it.
+        Backs the 1-open-questionário-at-a-time limit: `grading_service`
+        forces resuming this one instead of starting a second one - a
+        student can't get around an abandoned attempt by just starting
+        another."""
         stmt = (
             select(Tentativa)
             .where(Tentativa.user_id == user_id, Tentativa.status == STATUS_EM_ANDAMENTO)
