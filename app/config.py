@@ -16,11 +16,16 @@ class Settings(BaseSettings):
     JWT_SECRET: str
     JWT_ALGORITHM: str = "HS256"
 
-    # AI provider (strategy selection) - "adk" migrates gerar_questionario/
-    # planejar_modulos to Google ADK with a Pydantic output_schema (Fase 1 of
-    # the ADK migration); everything else still runs through GeminiProvider
-    # under the hood either way. "gemini" is kept as an instant rollback.
-    AI_PROVIDER: Literal["gemini", "adk"] = "gemini"
+    # AI provider (strategy selection) - "adk" (the default) runs
+    # gerar_questionario/planejar_modulos/gerar_conteudo_modulo/buscar_fontes/
+    # conversar_com_ferramentas through Google ADK (output_schema validation,
+    # and, for the admin chat, a persistent ADK SessionService that keeps
+    # full tool-call granularity - see AdkProvider.obter_historico_sessao).
+    # "gemini" is kept as an instant rollback to the legacy GeminiProvider
+    # path, but note that agent_service no longer persists per-tool-call
+    # messages itself, so the admin chat's tool-call history is unavailable
+    # under "gemini" specifically.
+    AI_PROVIDER: Literal["gemini", "adk"] = "adk"
     GEMINI_API_KEY: str
     GEMINI_MODEL_CONTEUDO: str = "gemini-2.5-flash"
     GEMINI_MODEL_QUESTIONARIO: str = "gemini-2.5-flash"
