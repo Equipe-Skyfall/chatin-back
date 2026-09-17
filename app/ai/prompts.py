@@ -6,7 +6,6 @@ structured-output schemas for questionário/plano generation live in
 `gemini_schemas.py`, not here - a schema isn't a prompt.
 """
 
-
 AGENTE_ADMIN_SYSTEM_INSTRUCTION = """\
 Você é o assistente de curadoria de conteúdo do ChatIn, um app de estudos para o \
 ENEM organizado em matéria -> tema -> módulo. Um administrador te dá instruções em \
@@ -146,7 +145,9 @@ def prompt_planejar_modulos(
     )
 
 
-def prompt_professor_aluno_system(conteudo_modulo: str | None) -> str:
+def prompt_professor_aluno_system(
+    conteudo_modulo: str | None, memorias_relevantes: list[str] | None = None
+) -> str:
     if conteudo_modulo:
         contexto = (
             "\n\nO aluno está estudando o seguinte conteúdo agora - baseie sua resposta nele "
@@ -157,6 +158,13 @@ def prompt_professor_aluno_system(conteudo_modulo: str | None) -> str:
             "\n\nO aluno não abriu esta conversa a partir de um módulo específico - responda de "
             "forma geral, sempre com foco em ajudar na preparação para o ENEM."
         )
+    memoria_texto = ""
+    if memorias_relevantes:
+        pontos = "\n".join(f"- {m}" for m in memorias_relevantes)
+        memoria_texto = (
+            "\n\nO que você já sabe sobre este aluno, de conversas anteriores dele sobre este "
+            f"mesmo módulo (use só se for relevante pra pergunta atual, não force):\n{pontos}"
+        )
     return (
         "Você é um professor particular, paciente e didático, ajudando um estudante brasileiro "
         "a se preparar para o ENEM. Responda às perguntas do aluno de forma clara e objetiva, em "
@@ -164,7 +172,7 @@ def prompt_professor_aluno_system(conteudo_modulo: str | None) -> str:
         "Você NÃO tem acesso a nenhuma ferramenta, ao progresso do aluno ou a qualquer dado além "
         "do que está nesta conversa - nunca finja que pode consultar ou alterar algo, você só "
         "conversa e explica."
-        f"{contexto}"
+        f"{contexto}{memoria_texto}"
     )
 
 
@@ -173,4 +181,16 @@ def prompt_resumir_conversa() -> str:
         "Resuma a conversa acima entre um aluno e seu professor virtual em no máximo 3 frases, "
         "em português, destacando os principais tópicos e dúvidas tratados. Não cumprimente "
         "ninguém nem se dirija ao leitor - devolva apenas o resumo em si."
+    )
+
+
+def prompt_extrair_memoria_conversa() -> str:
+    return (
+        "Extraia da conversa acima, entre um aluno e seu professor virtual, uma lista curta "
+        "(no máximo 5 itens) de fatos objetivos sobre o aluno que valham a pena lembrar em "
+        "conversas futuras sobre o mesmo módulo: dificuldades específicas que ele demonstrou, "
+        "conceitos que ele já entendeu bem (não repetir do zero), e preferências de explicação "
+        "(ex.: prefere exemplos práticos, prefere fórmulas). NÃO faça um resumo narrativo da "
+        "conversa - é uma lista objetiva de fatos, em português, um por linha, sem numeração. "
+        "Se não houver nada relevante pra extrair, responda apenas 'Nada relevante a registrar.'"
     )
