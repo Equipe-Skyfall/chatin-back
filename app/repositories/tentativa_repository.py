@@ -7,12 +7,30 @@ from sqlalchemy.orm import selectinload
 
 from app.db.session import DbSession
 from app.models.questionario import Questionario
-from app.models.tentativa import STATUS_CONCLUIDA, RespostaTentativa, Tentativa, TentativaQuestao
+from app.models.tentativa import (
+    STATUS_CONCLUIDA,
+    STATUS_EM_ANDAMENTO,
+    RespostaTentativa,
+    Tentativa,
+    TentativaQuestao,
+)
 from app.repositories.base import SqlAlchemyRepository
 
 
 class TentativaRepository(SqlAlchemyRepository[Tentativa]):
     model = Tentativa
+
+    def get_em_andamento_by_user(self, user_id: str) -> Tentativa | None:
+        """The student's single in-progress attempt, if any - regardless of
+        scope (módulo, tema-review, or personalized). Backs the 1-active-
+        attempt-at-a-time limit: `grading_service` resumes this instead of
+        starting a new one."""
+        stmt = (
+            select(Tentativa)
+            .where(Tentativa.user_id == user_id, Tentativa.status == STATUS_EM_ANDAMENTO)
+            .options(selectinload(Tentativa.questoes_selecionadas))
+        )
+        return self.db.execute(stmt).scalars().first()
 
     def add_tentativa_questoes(self, itens: list[TentativaQuestao]) -> None:
         self.db.add_all(itens)

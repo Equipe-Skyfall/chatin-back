@@ -148,7 +148,7 @@ def responder_tentativa(
         tentativa, body.respostas, questionario_repo, tentativa_repo
     )
 
-    if tentativa.questionario_id is not None:
+    if tentativa.questionario_id is not None and not tentativa.pratica:
         modulo_id = tentativa.questionario.modulo_id
         modulo = modulo_repo.get(modulo_id)
         tema = tema_repo.get(modulo.tema_id)
@@ -162,7 +162,7 @@ def responder_tentativa(
             xp_repo,
         )
         progresso_repo.commit()
-    # a tema-scoped (review) attempt is practice only - no progress/XP change
+    # a tema-scoped (review) or `pratica` attempt is practice only - no progress/XP change
 
     return TentativaResultadoOut(
         id=tentativa.id,

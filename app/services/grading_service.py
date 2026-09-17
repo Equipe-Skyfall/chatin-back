@@ -29,7 +29,21 @@ from app.schemas.tentativa import RespostaInput, RespostaResultadoOut
 from app.services import dificuldade_service
 
 
-def _iniciar_tentativa_com_pool(
+def _tentativa_em_andamento_como_lista(
+    tentativa: Tentativa, questionario_repo: QuestionarioRepository
+) -> tuple[Tentativa, list[Questao]]:
+    """Reconstructs the (tentativa, questões) shape `iniciar_tentativa*`
+    returns, from an already-in-progress attempt's fixed sample - used to
+    resume instead of starting a second one (see the 1-active-attempt limit
+    in `iniciar_tentativa`/`iniciar_tentativa_tema`)."""
+    itens = sorted(tentativa.questoes_selecionadas, key=lambda i: i.ordem)
+    questoes = questionario_repo.get_questoes_by_ids([i.questao_id for i in itens])
+    ordem_map = {i.questao_id: i.ordem for i in itens}
+    questoes_ordenadas = sorted(questoes, key=lambda q: ordem_map[q.id])
+    return tentativa, questoes_ordenadas
+
+
+def iniciar_tentativa_com_pool(
     pool_ids: list[uuid.UUID],
     user_id: str,
     num_questoes: int,
@@ -38,7 +52,12 @@ def _iniciar_tentativa_com_pool(
     *,
     questionario_id: uuid.UUID | None,
     tema_id: uuid.UUID | None,
+    pratica: bool = False,
 ) -> tuple[Tentativa, list[Questao]]:
+    em_andamento = tentativa_repo.get_em_andamento_by_user(user_id)
+    if em_andamento is not None:
+        return _tentativa_em_andamento_como_lista(em_andamento, questionario_repo)
+
     quantidade = min(num_questoes, len(pool_ids))
 
     # Adaptive selection: a student doing well overall gets more hard
@@ -47,9 +66,7 @@ def _iniciar_tentativa_com_pool(
     # (every question "médio") until enough answer data exists.
     nivel = dificuldade_service.nivel_do_aluno(tentativa_repo.media_pontuacao_concluidas(user_id))
     dificuldades = dificuldade_service.dificuldade_por_questao(pool_ids, questionario_repo)
-    pesos = {
-        qid: dificuldade_service.PESOS_POR_NIVEL[nivel][dificuldades[qid]] for qid in pool_ids
-    }
+    pesos = {qid: dificuldade_service.PESOS_POR_NIVEL[nivel][dificuldades[qid]] for qid in pool_ids}
     selecionados = dificuldade_service.amostra_ponderada_sem_reposicao(pool_ids, pesos, quantidade)
 
     tentativa = Tentativa(
@@ -58,6 +75,7 @@ def _iniciar_tentativa_com_pool(
         user_id=user_id,
         status=STATUS_EM_ANDAMENTO,
         total_questoes=quantidade,
+        pratica=pratica,
     )
     tentativa_repo.add(tentativa)
     tentativa_repo.flush()
@@ -84,7 +102,7 @@ def iniciar_tentativa(
     tentativa_repo: TentativaRepository,
 ) -> tuple[Tentativa, list[Questao]]:
     pool_ids = questionario_repo.get_questao_ids_pool(questionario_id)
-    return _iniciar_tentativa_com_pool(
+    return iniciar_tentativa_com_pool(
         pool_ids,
         user_id,
         num_questoes,
@@ -110,7 +128,7 @@ def iniciar_tentativa_tema(
         raise ConteudoIndisponivelException(
             "Este tema ainda não tem nenhum módulo com questionário pronto."
         )
-    return _iniciar_tentativa_com_pool(
+    return iniciar_tentativa_com_pool(
         pool_ids,
         user_id,
         num_questoes,
@@ -118,6 +136,7 @@ def iniciar_tentativa_tema(
         tentativa_repo,
         questionario_id=None,
         tema_id=tema_id,
+        pratica=True,
     )
 
 
