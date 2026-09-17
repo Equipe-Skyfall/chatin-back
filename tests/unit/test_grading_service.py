@@ -176,6 +176,71 @@ def test_iniciar_tentativa_tema_sem_questoes_levanta_excecao(questionario_repo, 
         )
 
 
+def test_iniciar_tentativa_marca_pratica_false(questionario_repo, tentativa_repo):
+    questionario, _, _ = _seed_pool(questionario_repo, num_questoes=5)
+
+    tentativa, _ = grading_service.iniciar_tentativa(
+        questionario.id, uuid.uuid4(), 5, questionario_repo, tentativa_repo
+    )
+
+    assert tentativa.pratica is False
+
+
+def test_iniciar_tentativa_tema_marca_pratica_true(questionario_repo, tentativa_repo):
+    tema_id = uuid.uuid4()
+    _, questoes, _ = _seed_pool(questionario_repo, num_questoes=5)
+    questionario_repo.seed_pool_tema(tema_id, [q.id for q in questoes])
+
+    tentativa, _ = grading_service.iniciar_tentativa_tema(
+        tema_id, uuid.uuid4(), 5, questionario_repo, tentativa_repo
+    )
+
+    assert tentativa.pratica is True
+
+
+def test_iniciar_tentativa_duas_vezes_sem_concluir_retoma_a_mesma(
+    questionario_repo, tentativa_repo
+):
+    questionario, _, _ = _seed_pool(questionario_repo, num_questoes=12)
+    user_id = uuid.uuid4()
+
+    tentativa_1, questoes_1 = grading_service.iniciar_tentativa(
+        questionario.id, user_id, 5, questionario_repo, tentativa_repo
+    )
+    tentativa_2, questoes_2 = grading_service.iniciar_tentativa(
+        questionario.id, user_id, 5, questionario_repo, tentativa_repo
+    )
+
+    assert tentativa_2.id == tentativa_1.id
+    assert [q.id for q in questoes_2] == [q.id for q in questoes_1]
+    assert len(tentativa_repo.tentativas) == 1
+
+
+def test_iniciar_tentativa_tema_retoma_tentativa_de_modulo_em_andamento(
+    questionario_repo, tentativa_repo
+):
+    """The 1-active-attempt limit is global - starting a different kind of
+    quiz (tema review) while a módulo attempt is in progress resumes that
+    módulo attempt instead of starting a second one."""
+    questionario, _, _ = _seed_pool(questionario_repo, num_questoes=12)
+    tema_id = uuid.uuid4()
+    questionario_repo.seed_pool_tema(
+        tema_id, questionario_repo.get_questao_ids_pool(questionario.id)
+    )
+    user_id = uuid.uuid4()
+
+    tentativa_modulo, _ = grading_service.iniciar_tentativa(
+        questionario.id, user_id, 5, questionario_repo, tentativa_repo
+    )
+    tentativa_tema, _ = grading_service.iniciar_tentativa_tema(
+        tema_id, user_id, 5, questionario_repo, tentativa_repo
+    )
+
+    assert tentativa_tema.id == tentativa_modulo.id
+    assert tentativa_tema.questionario_id == questionario.id  # resumed, not tema-scoped
+    assert len(tentativa_repo.tentativas) == 1
+
+
 def test_iniciar_tentativa_tema_mistura_pools_de_varios_modulos(questionario_repo, tentativa_repo):
     tema_id = uuid.uuid4()
     _, questoes_1, _ = _seed_pool(questionario_repo, num_questoes=6)

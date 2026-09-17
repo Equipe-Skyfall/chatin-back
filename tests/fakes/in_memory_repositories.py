@@ -5,10 +5,17 @@ dicts/lists instead of a database. Used by service-layer unit tests
 
 import uuid
 
+from app.models.conversa import Conversa
+from app.models.modulo import Modulo
 from app.models.progresso import STATUS_DISPONIVEL, ProgressoUsuario
 from app.models.questao import Questao
 from app.models.questionario import Questionario
-from app.models.tentativa import RespostaTentativa, Tentativa, TentativaQuestao
+from app.models.tentativa import (
+    STATUS_EM_ANDAMENTO,
+    RespostaTentativa,
+    Tentativa,
+    TentativaQuestao,
+)
 
 
 class _FakeSession:
@@ -23,6 +30,13 @@ class InMemoryModuloRepository:
     def __init__(self):
         self.db = _FakeSession()
         self.statuses: dict[uuid.UUID, str] = {}
+        self._modulos: dict[uuid.UUID, Modulo] = {}
+
+    def seed(self, modulo: Modulo) -> None:
+        self._modulos[modulo.id] = modulo
+
+    def get(self, modulo_id: uuid.UUID) -> Modulo | None:
+        return self._modulos.get(modulo_id)
 
     def atualizar_status(self, modulo, status: str) -> None:
         modulo.status = status
@@ -127,9 +141,17 @@ class InMemoryTentativaRepository:
     def add_tentativa_questoes(self, itens: list[TentativaQuestao]) -> None:
         for item in itens:
             self._questoes_por_tentativa.setdefault(item.tentativa_id, set()).add(item.questao_id)
+        if itens:
+            self.tentativas[itens[0].tentativa_id].questoes_selecionadas = list(itens)
 
     def get_tentativa_questao_ids(self, tentativa_id: uuid.UUID) -> set[uuid.UUID]:
         return set(self._questoes_por_tentativa.get(tentativa_id, set()))
+
+    def get_em_andamento_by_user(self, user_id: str) -> Tentativa | None:
+        for tentativa in self.tentativas.values():
+            if tentativa.user_id == user_id and tentativa.status == STATUS_EM_ANDAMENTO:
+                return tentativa
+        return None
 
     def add_respostas(self, respostas: list[RespostaTentativa]) -> None:
         self.respostas.extend(respostas)
@@ -214,3 +236,24 @@ class InMemoryXpRepository:
             for e in self.eventos
             if e.user_id == user_id and e.materia_id == materia_id
         )
+
+
+class InMemoryConversaRepository:
+    """Only what `questionario_personalizado_service` needs -
+    `list_by_user_and_modulo_with_mensagens`, seeded directly."""
+
+    def __init__(self):
+        self.db = _FakeSession()
+        self._conversas: list[Conversa] = []
+
+    def seed(self, conversa: Conversa) -> None:
+        self._conversas.append(conversa)
+
+    def list_by_user_and_modulo_with_mensagens(
+        self, user_id: str, modulo_id: uuid.UUID, tipo: str
+    ) -> list[Conversa]:
+        return [
+            c
+            for c in self._conversas
+            if c.user_id == user_id and c.modulo_id == modulo_id and c.tipo == tipo
+        ]
