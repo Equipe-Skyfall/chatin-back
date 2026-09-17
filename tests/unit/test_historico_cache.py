@@ -98,3 +98,33 @@ def test_janela_mantem_so_as_ultimas_n_mensagens():
         conversa_id, InMemoryConversaRepository(), redis_cliente, 3
     )
     assert [m.conteudo for m in historico] == ["msg2", "msg3", "msg4"]
+
+
+def test_lock_sem_redis_sempre_adquire():
+    assert historico_cache.adquirir_lock(uuid.uuid4(), None) is True
+    historico_cache.liberar_lock(uuid.uuid4(), None)  # não deve levantar
+
+
+def test_lock_redis_indisponivel_adquire_mesmo_assim():
+    redis_cliente = FakeRedisCliente(indisponivel=True)
+    assert historico_cache.adquirir_lock(uuid.uuid4(), redis_cliente) is True
+    historico_cache.liberar_lock(uuid.uuid4(), redis_cliente)  # não deve levantar
+
+
+def test_lock_segunda_aquisicao_falha_ate_liberar():
+    conversa_id = uuid.uuid4()
+    redis_cliente = FakeRedisCliente()
+
+    assert historico_cache.adquirir_lock(conversa_id, redis_cliente) is True
+    assert historico_cache.adquirir_lock(conversa_id, redis_cliente) is False
+
+    historico_cache.liberar_lock(conversa_id, redis_cliente)
+    assert historico_cache.adquirir_lock(conversa_id, redis_cliente) is True
+
+
+def test_lock_e_por_conversa():
+    redis_cliente = FakeRedisCliente()
+    conversa_a, conversa_b = uuid.uuid4(), uuid.uuid4()
+
+    assert historico_cache.adquirir_lock(conversa_a, redis_cliente) is True
+    assert historico_cache.adquirir_lock(conversa_b, redis_cliente) is True

@@ -1,8 +1,8 @@
 """In-memory stand-in for the `redis.Redis` client used by
 `app/services/historico_cache.py`. Supports only the commands that module
-calls (`lrange`, and `rpush`/`ltrim`/`expire` via a pipeline) - enough to
-exercise the cache-hit, cache-miss and Redis-outage paths without a real
-Redis instance."""
+calls (`lrange`, `rpush`/`ltrim`/`expire` via a pipeline, and `set`/`delete`
+for the per-conversa lock) - enough to exercise the cache-hit, cache-miss,
+lock and Redis-outage paths without a real Redis instance."""
 
 import redis
 
@@ -41,6 +41,7 @@ class FakeRedisCliente:
     def __init__(self, indisponivel: bool = False):
         self.dados: dict[str, list[str]] = {}
         self.ttls: dict[str, int] = {}
+        self.chaves_simples: dict[str, str] = {}
         self.indisponivel = indisponivel
 
     def lrange(self, chave: str, start: int, end: int) -> list[str]:
@@ -51,3 +52,18 @@ class FakeRedisCliente:
 
     def pipeline(self) -> _FakePipeline:
         return _FakePipeline(self)
+
+    def set(self, chave: str, valor: str, nx: bool = False, ex: int | None = None) -> bool:
+        if self.indisponivel:
+            raise redis.RedisError("Redis indisponível (fake)")
+        if nx and chave in self.chaves_simples:
+            return False
+        self.chaves_simples[chave] = valor
+        if ex is not None:
+            self.ttls[chave] = ex
+        return True
+
+    def delete(self, chave: str) -> None:
+        if self.indisponivel:
+            raise redis.RedisError("Redis indisponível (fake)")
+        self.chaves_simples.pop(chave, None)
