@@ -6,7 +6,6 @@ structured-output schemas for questionário/plano generation live in
 `gemini_schemas.py`, not here - a schema isn't a prompt.
 """
 
-
 AGENTE_ADMIN_SYSTEM_INSTRUCTION = """\
 Você é o assistente de curadoria de conteúdo do ChatIn, um app de estudos para o \
 ENEM organizado em matéria -> tema -> módulo. Um administrador te dá instruções em \
@@ -105,9 +104,19 @@ def prompt_gerar_conteudo_modulo(
 
 
 def prompt_gerar_questionario(
-    conteudo_modulo: str, foco_modulo: str | None, quantidade: int
+    conteudo_modulo: str,
+    foco_modulo: str | None,
+    quantidade: int,
+    contexto_conversa: str | None = None,
 ) -> str:
     foco_texto = f" com foco específico em: {foco_modulo}." if foco_modulo else "."
+    conversa_texto = (
+        f"\n\nO aluno conversou sobre este módulo com o professor virtual; leve em conta os "
+        f"tópicos e dúvidas abaixo para focar as questões no que ele realmente estudou/perguntou "
+        f"(sem inventar nada fora do CONTEÚDO do módulo):\n{contexto_conversa}"
+        if contexto_conversa
+        else ""
+    )
     return (
         f"Com base no conteúdo do módulo abaixo, gere exatamente {quantidade} questões de múltipla "
         f"escolha no estilo ENEM{foco_texto} Cada questão deve ter exatamente 5 alternativas "
@@ -117,7 +126,7 @@ def prompt_gerar_questionario(
         "use APENAS símbolos Unicode comuns (ex.: →, ∈, ≠, ≤, ≥, ², ³, √) ou expressões simples "
         "como 'x^2' - nunca comandos LaTeX com barra invertida (como \\to, \\in, \\neq), pois eles "
         "não são renderizados e quebram o texto. "
-        "Responda em português.\n\n"
+        f"Responda em português.{conversa_texto}\n\n"
         f"CONTEÚDO:\n{conteudo_modulo}"
     )
 

@@ -11,6 +11,8 @@ from app.core.exceptions import (
     TentativaNaoEncontradaException,
 )
 from app.deps import (
+    AiProviderDep,
+    ConversaRepo,
     CurrentUserId,
     MateriaRepo,
     ModuloRepo,
@@ -26,7 +28,7 @@ from app.models.tema import STATUS_PRONTO as TEMA_STATUS_PRONTO
 from app.schemas.progresso import ProgressoOut
 from app.schemas.questionario import AlternativaOut, QuestaoOut, TentativaIniciarOut
 from app.schemas.tentativa import ResponderRequest, TentativaHistoricoOut, TentativaResultadoOut
-from app.services import grading_service
+from app.services import grading_service, questionario_personalizado_service
 from app.services.progresso_service import (
     atualizar_progresso,
     estado_modulo,
@@ -69,6 +71,64 @@ def iniciar_tentativa(
 
     tentativa, questoes = grading_service.iniciar_tentativa(
         questionario.id, user_id, settings.TENTATIVA_NUM_QUESTOES, questionario_repo, tentativa_repo
+    )
+
+    return TentativaIniciarOut(
+        tentativa_id=tentativa.id,
+        questoes=[
+            QuestaoOut(
+                id=q.id,
+                ordem=idx,
+                enunciado=q.enunciado,
+                alternativas=[AlternativaOut(**alt) for alt in q.alternativas],
+            )
+            for idx, q in enumerate(questoes)
+        ],
+    )
+
+
+@router.post("/modulos/{modulo_id}/questionario-personalizado", response_model=TentativaIniciarOut)
+def gerar_questionario_personalizado(
+    modulo_id: UUID,
+    user_id: CurrentUserId,
+    modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    progresso_repo: ProgressoRepo,
+    questionario_repo: QuestionarioRepo,
+    conversa_repo: ConversaRepo,
+    tentativa_repo: TentativaRepo,
+    ai_provider: AiProviderDep,
+    settings: SettingsDep,
+) -> TentativaIniciarOut:
+    """Aluno-triggered practice quiz, grounded in the módulo's content plus
+    the student's own conversation about it - unlike `iniciar_tentativa`,
+    may call the AI (only for however many questions the pool is short of -
+    see `questionario_personalizado_service`) and never affects progress/XP."""
+    modulo = modulo_repo.get(modulo_id)
+    if modulo is None or modulo.status != MODULO_STATUS_PRONTO:
+        raise ModuloNaoEncontradoException(modulo_id)
+
+    tema = tema_repo.get(modulo.tema_id)
+    temas_da_materia = tema_repo.list_by_materia_with_modulos(tema.materia_id)
+    modulo_ids = [m.id for t in temas_da_materia for m in t.modulos]
+    progresso_map = {
+        p.modulo_id: p for p in progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
+    }
+    tema_est = estado_tema(tema, temas_da_materia, progresso_map)
+    tema_com_modulos = next(t for t in temas_da_materia if t.id == tema.id)
+    if estado_modulo(modulo, tema_com_modulos.modulos, tema_est, progresso_map) == "bloqueado":
+        raise ModuloBloqueadoException()
+
+    tentativa, questoes = questionario_personalizado_service.gerar_tentativa_personalizada(
+        modulo_id,
+        user_id,
+        settings.QUESTIONARIO_POOL_SIZE,
+        settings.TENTATIVA_NUM_QUESTOES,
+        modulo_repo,
+        questionario_repo,
+        conversa_repo,
+        tentativa_repo,
+        ai_provider,
     )
 
     return TentativaIniciarOut(
