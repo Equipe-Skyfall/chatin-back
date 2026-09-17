@@ -1,13 +1,14 @@
-"""Redis-backed working memory for the student chat (`chat_aluno_service`):
-a cache of each conversa's most recent messages, used only to build the
-context sent to the AI provider.
+"""Redis-backed short-term state for the student chat (`chat_aluno_service`):
+a cache of each conversa's most recent messages (used only to build the
+context sent to the AI provider) plus a per-conversa concurrency lock.
 
 Postgres (`Mensagem`) stays the source of truth and the full audit trail -
 this cache is a disposable, best-effort mirror of the tail of that history.
 Any Redis failure (unreachable, timed out, or simply not configured - `redis`
-is `None`) is treated as a cache miss and falls back to reloading from
-Postgres via `conversa_repo`; it never raises, so an outage here can't break
-the chat (see RNF6 in `docs/AGENTS.md`).
+is `None`) is treated as a cache miss (for the history) or "no lock held"
+(for `adquirir_lock`/`liberar_lock`) and falls back to Postgres/no locking;
+neither ever raises, so an outage here can't break the chat (see RNF6 in
+`docs/AGENTS.md`).
 """
 
 import json
@@ -22,9 +23,44 @@ from app.repositories.conversa_repository import ConversaRepository
 
 logger = logging.getLogger(__name__)
 
+_LOCK_TTL_SEGUNDOS = 30
+
 
 def _chave(conversa_id: uuid.UUID) -> str:
     return f"conversa:{conversa_id}:historico"
+
+
+def _chave_lock(conversa_id: uuid.UUID) -> str:
+    return f"conversa:{conversa_id}:lock"
+
+
+def adquirir_lock(conversa_id: uuid.UUID, redis_cliente: redis.Redis | None) -> bool:
+    """Best-effort per-conversa lock so two concurrent turns on the same
+    conversa don't race on `ConversaRepository.proxima_ordem` (both reading
+    the same count before either writes, then colliding on the unique
+    `(conversa_id, ordem)` constraint). Returns `True` when the lock was
+    acquired *or* there's nothing to lock with (no Redis configured, or
+    Redis unreachable) - RNF6: an outage here degrades to "no locking", not
+    "chat broken". The DB constraint is still the real correctness
+    guarantee; this only avoids routinely hitting it."""
+    if redis_cliente is None:
+        return True
+    try:
+        return bool(
+            redis_cliente.set(_chave_lock(conversa_id), "1", nx=True, ex=_LOCK_TTL_SEGUNDOS)
+        )
+    except redis.RedisError:
+        logger.warning("Redis indisponível ao adquirir lock da conversa %s", conversa_id)
+        return True
+
+
+def liberar_lock(conversa_id: uuid.UUID, redis_cliente: redis.Redis | None) -> None:
+    if redis_cliente is None:
+        return
+    try:
+        redis_cliente.delete(_chave_lock(conversa_id))
+    except redis.RedisError:
+        logger.warning("Redis indisponível ao liberar lock da conversa %s", conversa_id)
 
 
 def mensagem_para_historico(mensagem: Mensagem) -> MensagemAgente:

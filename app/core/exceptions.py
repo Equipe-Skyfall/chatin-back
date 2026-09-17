@@ -110,6 +110,11 @@ class OrdemDuplicadaException(AppException):
         )
 
 
+class ConversaOcupadaException(AppException):
+    status_code = 409
+    detail = "Já existe uma mensagem sendo processada nesta conversa - aguarde a resposta anterior."
+
+
 # --- 403s (access / lock state) ---
 
 

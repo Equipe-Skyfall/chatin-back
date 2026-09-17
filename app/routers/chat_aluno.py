@@ -59,6 +59,7 @@ def enviar_mensagem(
         ai_provider,
         redis_cliente,
         settings.MEMORIA_JANELA_MENSAGENS,
+        settings.MEMORIA_LONGO_PRAZO_LIMITE,
     )
     return ChatRespostaOut(conversa_id=conversa.id, resposta=resposta)
 
