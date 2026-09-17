@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,8 +16,16 @@ class Settings(BaseSettings):
     JWT_SECRET: str
     JWT_ALGORITHM: str = "HS256"
 
-    # AI provider (strategy selection)
-    AI_PROVIDER: str = "gemini"
+    # AI provider (strategy selection) - "adk" (the default) runs
+    # gerar_questionario/planejar_modulos/gerar_conteudo_modulo/buscar_fontes/
+    # conversar_com_ferramentas through Google ADK (output_schema validation,
+    # and, for the admin chat, a persistent ADK SessionService that keeps
+    # full tool-call granularity - see AdkProvider.obter_historico_sessao).
+    # "gemini" is kept as an instant rollback to the legacy GeminiProvider
+    # path, but note that agent_service no longer persists per-tool-call
+    # messages itself, so the admin chat's tool-call history is unavailable
+    # under "gemini" specifically.
+    AI_PROVIDER: Literal["gemini", "adk"] = "adk"
     GEMINI_API_KEY: str
     GEMINI_MODEL_CONTEUDO: str = "gemini-2.5-flash"
     GEMINI_MODEL_QUESTIONARIO: str = "gemini-2.5-flash"
@@ -38,6 +47,18 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def adk_session_db_url(self) -> str:
+        """`SUPABASE_DB_URL` with its driver swapped for an async one -
+        the ADK's `DatabaseSessionService` (used by `AdkProvider` for the
+        admin agent's conversation history) requires an async SQLAlchemy
+        engine, while every other repository in this app stays on the
+        synchronous `psycopg` engine. This is the one place that engine
+        needs to exist, isolated from the rest of the app."""
+        scheme, rest = self.SUPABASE_DB_URL.split("://", 1)
+        backend = scheme.split("+", 1)[0]
+        return f"{backend}+asyncpg://{rest}"
 
 
 @lru_cache
