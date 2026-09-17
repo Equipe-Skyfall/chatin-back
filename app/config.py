@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL_SEARCH: str = "gemini-2.5-flash"
     GEMINI_MODEL_AGENTE: str = "gemini-2.5-flash"
     GEMINI_MODEL_PROFESSOR: str = "gemini-2.5-flash"
+    GEMINI_MODEL_EMBEDDING: str = "gemini-embedding-001"
 
     # Content generation tuning
     QUESTIONARIO_POOL_SIZE: int = 12
@@ -43,6 +44,11 @@ class Settings(BaseSettings):
     # and the student chat always falls back to reloading from Postgres.
     REDIS_URL: str | None = None
     MEMORIA_JANELA_MENSAGENS: int = 20  # recent messages kept in the cache per conversa
+
+    # Long-term memory (pgvector): semantic retrieval, across the student's
+    # own past conversations about the same módulo, of key facts/preferences
+    # extracted from each one - see `memoria_longo_prazo_service`.
+    MEMORIA_LONGO_PRAZO_LIMITE: int = 3  # top-K past conversas retrieved per turn
 
     # App
     ENV: str = "local"
