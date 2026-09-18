@@ -47,9 +47,17 @@ class AIProvider(ABC):
 
     @abstractmethod
     def gerar_questionario(
-        self, conteudo_modulo: str, foco_modulo: str | None, quantidade: int
+        self,
+        conteudo_modulo: str,
+        foco_modulo: str | None,
+        quantidade: int,
+        contexto_conversa: str | None = None,
     ) -> QuestionarioGerado:
-        """Generate a pool of multiple-choice questions (5 alternatives, 1 correct each)."""
+        """Generate a pool of multiple-choice questions (5 alternatives, 1
+        correct each). `contexto_conversa` is optional grounding from a
+        student's own chat about this módulo - set only by the on-demand
+        personalized quiz (`questionario_personalizado_service`), never by
+        the admin's own pool generation."""
 
     @abstractmethod
     def planejar_modulos(

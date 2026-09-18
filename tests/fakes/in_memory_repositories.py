@@ -5,11 +5,19 @@ dicts/lists instead of a database. Used by service-layer unit tests
 
 import uuid
 
+from sqlalchemy.exc import IntegrityError
+
 from app.models.conversa import Conversa, Mensagem
+from app.models.modulo import Modulo
 from app.models.progresso import STATUS_DISPONIVEL, ProgressoUsuario
 from app.models.questao import Questao
 from app.models.questionario import Questionario
-from app.models.tentativa import RespostaTentativa, Tentativa, TentativaQuestao
+from app.models.tentativa import (
+    STATUS_EM_ANDAMENTO,
+    RespostaTentativa,
+    Tentativa,
+    TentativaQuestao,
+)
 
 
 class _FakeSession:
@@ -24,12 +32,12 @@ class InMemoryModuloRepository:
     def __init__(self):
         self.db = _FakeSession()
         self.statuses: dict[uuid.UUID, str] = {}
-        self._modulos: dict[uuid.UUID, object] = {}
+        self._modulos: dict[uuid.UUID, Modulo] = {}
 
-    def seed(self, modulo) -> None:
+    def seed(self, modulo: Modulo) -> None:
         self._modulos[modulo.id] = modulo
 
-    def get(self, modulo_id: uuid.UUID):
+    def get(self, modulo_id: uuid.UUID) -> Modulo | None:
         return self._modulos.get(modulo_id)
 
     def atualizar_status(self, modulo, status: str) -> None:
@@ -61,18 +69,26 @@ def _distancia_cosseno(a: list[float], b: list[float]) -> float:
 
 
 class InMemoryConversaRepository:
-    """What `historico_cache`'s Postgres fallback and
-    `memoria_longo_prazo_service` need - seeded directly, `add`/`commit`
-    are no-ops that just keep the in-memory dict in sync."""
+    """Combined fake: what `historico_cache`/`memoria_longo_prazo_service`
+    need (Redis short-term cache fallback + pgvector long-term memory
+    retrieval) plus what `questionario_personalizado_service` needs
+    (conversation text as generation grounding). `add`/`commit` are no-ops
+    that just keep the in-memory dict in sync."""
 
     def __init__(self):
         self.db = _FakeSession()
         self._conversas: dict[uuid.UUID, Conversa] = {}
 
-    def seed(self, conversa_id: uuid.UUID, mensagens: list[Mensagem]) -> None:
-        conversa = Conversa(id=conversa_id)
-        conversa.mensagens = mensagens
-        self._conversas[conversa_id] = conversa
+    def seed(self, conversa_ou_id, mensagens: list[Mensagem] | None = None) -> None:
+        """Two forms: `seed(conversa)` with an already-built `Conversa`
+        (its `.id` is used as-is), or `seed(conversa_id, mensagens)` -
+        builds a minimal `Conversa` around that id and message list."""
+        if isinstance(conversa_ou_id, Conversa):
+            self._conversas[conversa_ou_id.id] = conversa_ou_id
+            return
+        conversa = Conversa(id=conversa_ou_id)
+        conversa.mensagens = mensagens or []
+        self._conversas[conversa_ou_id] = conversa
 
     def get_with_mensagens(self, conversa_id: uuid.UUID) -> Conversa | None:
         return self._conversas.get(conversa_id)
@@ -105,6 +121,15 @@ class InMemoryConversaRepository:
             and c.modulo_id == modulo_id
             and c.tipo == tipo
             and c.id != excluir_id
+        ]
+
+    def list_by_user_and_modulo_with_mensagens(
+        self, user_id: str, modulo_id: uuid.UUID, tipo: str
+    ) -> list[Conversa]:
+        return [
+            c
+            for c in self._conversas.values()
+            if c.user_id == user_id and c.modulo_id == modulo_id and c.tipo == tipo
         ]
 
     def buscar_memorias_similares(
@@ -162,6 +187,13 @@ class InMemoryQuestionarioRepository:
     def get_questao_ids_pool(self, questionario_id: uuid.UUID) -> list[uuid.UUID]:
         return [q.id for q in self.questoes.values() if q.questionario_id == questionario_id]
 
+    def get_questao_ids_pool_graduavel(self, questionario_id: uuid.UUID) -> list[uuid.UUID]:
+        return [
+            q.id
+            for q in self.questoes.values()
+            if q.questionario_id == questionario_id and not q.personalizada
+        ]
+
     def get_questoes_by_ids(self, questao_ids: list[uuid.UUID]) -> list[Questao]:
         return [self.questoes[qid] for qid in questao_ids if qid in self.questoes]
 
@@ -200,15 +232,27 @@ class InMemoryQuestionarioRepository:
 
 class InMemoryTentativaRepository:
     def __init__(self):
+        self.db = _FakeSession()
         self.tentativas: dict[uuid.UUID, Tentativa] = {}
+        self._pendentes: list[Tentativa] = []
         self._questoes_por_tentativa: dict[uuid.UUID, set[uuid.UUID]] = {}
         self.respostas: list[RespostaTentativa] = []
+        # Test control: makes the *next* `flush()` raise `IntegrityError`
+        # (and discard whatever was pending, mirroring a real rollback) -
+        # like a real race against the partial unique index would. See
+        # `grading_service.iniciar_tentativa_com_pool`'s IntegrityError catch.
+        self.falhar_proximo_flush = False
 
     def add(self, tentativa: Tentativa) -> Tentativa:
         if tentativa.id is None:
             tentativa.id = uuid.uuid4()
-        self.tentativas[tentativa.id] = tentativa
+        self._pendentes.append(tentativa)
         return tentativa
+
+    def _persistir_pendentes(self) -> None:
+        for tentativa in self._pendentes:
+            self.tentativas[tentativa.id] = tentativa
+        self._pendentes.clear()
 
     def get(self, tentativa_id: uuid.UUID) -> Tentativa | None:
         return self.tentativas.get(tentativa_id)
@@ -216,9 +260,19 @@ class InMemoryTentativaRepository:
     def add_tentativa_questoes(self, itens: list[TentativaQuestao]) -> None:
         for item in itens:
             self._questoes_por_tentativa.setdefault(item.tentativa_id, set()).add(item.questao_id)
+        if itens:
+            self.tentativas[itens[0].tentativa_id].questoes_selecionadas = list(itens)
 
     def get_tentativa_questao_ids(self, tentativa_id: uuid.UUID) -> set[uuid.UUID]:
         return set(self._questoes_por_tentativa.get(tentativa_id, set()))
+
+    def get_questionario_aberto_by_user(self, user_id: str) -> Tentativa | None:
+        # Most-recently-added first, mirroring the real repository's
+        # `order_by(created_at.desc())` for tests that add sequentially.
+        for tentativa in reversed(list(self.tentativas.values())):
+            if tentativa.user_id == user_id and tentativa.status == STATUS_EM_ANDAMENTO:
+                return tentativa
+        return None
 
     def add_respostas(self, respostas: list[RespostaTentativa]) -> None:
         self.respostas.extend(respostas)
@@ -237,10 +291,14 @@ class InMemoryTentativaRepository:
         return sum(pontuacoes) / len(pontuacoes) if pontuacoes else None
 
     def flush(self) -> None:
-        pass
+        if self.falhar_proximo_flush:
+            self.falhar_proximo_flush = False
+            self._pendentes.clear()
+            raise IntegrityError("insert", {}, Exception("unique violation (fake)"))
+        self._persistir_pendentes()
 
     def commit(self) -> None:
-        pass
+        self._persistir_pendentes()
 
     def refresh(self, entity) -> None:
         pass

@@ -36,18 +36,40 @@ class QuestionarioRepository(SqlAlchemyRepository[Questionario]):
         return gabarito
 
     def get_questao_ids_pool(self, questionario_id: uuid.UUID) -> list[uuid.UUID]:
+        """Every questão in the pool, admin-authored and personalized alike -
+        used where reusing personalized ones is fine (the personalized quiz's
+        own "do I already have enough" check). Never use this for a pool a
+        grade depends on - see `get_questao_ids_pool_graduavel`."""
         stmt = select(Questao.id).where(Questao.questionario_id == questionario_id)
         return list(self.db.execute(stmt).scalars().all())
 
+    def get_questao_ids_pool_graduavel(self, questionario_id: uuid.UUID) -> list[uuid.UUID]:
+        """Same pool, admin-authored questões only - excludes anything
+        `personalizada` (student-triggered, grounded in that student's own
+        conversation text). This is what `iniciar_tentativa` (the graded
+        módulo-completion quiz) samples from, so a student's on-demand
+        practice quiz can never contaminate what anyone is graded on."""
+        stmt = select(Questao.id).where(
+            Questao.questionario_id == questionario_id, Questao.personalizada.is_(False)
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
     def get_questao_ids_pool_por_tema(self, tema_id: uuid.UUID) -> list[uuid.UUID]:
-        """Union of every ready módulo's question pool under a tema - the
+        """Union of every ready módulo's *graduável* pool under a tema - the
         source for a tema-wide review quiz (see
-        `grading_service.iniciar_tentativa_tema`), not a real pool of its own."""
+        `grading_service.iniciar_tentativa_tema`), not a real pool of its own.
+        Excludes `personalizada` questões for the same reason as
+        `get_questao_ids_pool_graduavel` - this quiz is shown to any student
+        who asks, not just the one whose conversation grounded a question."""
         stmt = (
             select(Questao.id)
             .join(Questionario, Questionario.id == Questao.questionario_id)
             .join(Modulo, Modulo.id == Questionario.modulo_id)
-            .where(Modulo.tema_id == tema_id, Modulo.status == MODULO_STATUS_PRONTO)
+            .where(
+                Modulo.tema_id == tema_id,
+                Modulo.status == MODULO_STATUS_PRONTO,
+                Questao.personalizada.is_(False),
+            )
         )
         return list(self.db.execute(stmt).scalars().all())
 

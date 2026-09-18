@@ -188,9 +188,15 @@ class AdkProvider(AIProvider):
 
     @_retry_transient
     def gerar_questionario(
-        self, conteudo_modulo: str, foco_modulo: str | None, quantidade: int
+        self,
+        conteudo_modulo: str,
+        foco_modulo: str | None,
+        quantidade: int,
+        contexto_conversa: str | None = None,
     ) -> QuestionarioGerado:
-        prompt = prompt_gerar_questionario(conteudo_modulo, foco_modulo, quantidade)
+        prompt = prompt_gerar_questionario(
+            conteudo_modulo, foco_modulo, quantidade, contexto_conversa
+        )
         try:
             raw = self._run_single_turn(self._questionario_agent, prompt)
         except ProvedorIAIndisponivelException:

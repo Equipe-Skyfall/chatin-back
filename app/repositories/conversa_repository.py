@@ -29,6 +29,24 @@ class ConversaRepository(SqlAlchemyRepository[Conversa]):
         )
         return list(self.db.execute(stmt).scalars().all())
 
+    def list_by_user_and_modulo_with_mensagens(
+        self, user_id: str, modulo_id: uuid.UUID, tipo: str
+    ) -> list[Conversa]:
+        """Every conversation this student had scoped to this módulo -
+        grounding for the on-demand personalized quiz (see
+        `questionario_personalizado_service`), so it can focus on what the
+        student actually asked about, not just the módulo's raw content."""
+        stmt = (
+            select(Conversa)
+            .where(
+                Conversa.user_id == user_id,
+                Conversa.modulo_id == modulo_id,
+                Conversa.tipo == tipo,
+            )
+            .options(selectinload(Conversa.mensagens))
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
     def add_mensagem(self, mensagem: Mensagem) -> Mensagem:
         self.db.add(mensagem)
         return mensagem

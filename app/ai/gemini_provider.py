@@ -144,9 +144,15 @@ class GeminiProvider(AIProvider):
         return ConteudoGerado(conteudo=conteudo, modelo=self._settings.GEMINI_MODEL_CONTEUDO)
 
     def gerar_questionario(
-        self, conteudo_modulo: str, foco_modulo: str | None, quantidade: int
+        self,
+        conteudo_modulo: str,
+        foco_modulo: str | None,
+        quantidade: int,
+        contexto_conversa: str | None = None,
     ) -> QuestionarioGerado:
-        raw = self._gerar_questionario_raw(conteudo_modulo, foco_modulo, quantidade)
+        raw = self._gerar_questionario_raw(
+            conteudo_modulo, foco_modulo, quantidade, contexto_conversa=contexto_conversa
+        )
         try:
             questoes = self._parse_questionario(raw, quantidade)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
@@ -155,6 +161,7 @@ class GeminiProvider(AIProvider):
                 conteudo_modulo,
                 foco_modulo,
                 quantidade,
+                contexto_conversa=contexto_conversa,
                 reforco=(
                     "IMPORTANTE: responda estritamente no formato JSON solicitado, com exatamente "
                     f"{quantidade} questões e exatamente 5 alternativas em cada uma."
@@ -173,9 +180,16 @@ class GeminiProvider(AIProvider):
 
     @_retry_transient
     def _gerar_questionario_raw(
-        self, conteudo_modulo: str, foco_modulo: str | None, quantidade: int, reforco: str = ""
+        self,
+        conteudo_modulo: str,
+        foco_modulo: str | None,
+        quantidade: int,
+        contexto_conversa: str | None = None,
+        reforco: str = "",
     ) -> str:
-        prompt = prompt_gerar_questionario(conteudo_modulo, foco_modulo, quantidade)
+        prompt = prompt_gerar_questionario(
+            conteudo_modulo, foco_modulo, quantidade, contexto_conversa
+        )
         if reforco:
             prompt = f"{prompt}\n\n{reforco}"
         try:

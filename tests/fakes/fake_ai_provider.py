@@ -31,6 +31,7 @@ class FakeAIProvider(AIProvider):
         self.falhar_gerar_questionario = False
         self.falhar_planejar_modulos = False
         self.direcionamentos_recebidos: list[str | None] = []
+        self.contextos_conversa_recebidos: list[str | None] = []
         self.conteudo_ja_coberto_recebido: list[list[str] | None] = []
         self.instrucoes_regeneracao_recebidas: list[str | None] = []
         self.plano_fixo: PlanoModulos | None = None
@@ -91,9 +92,14 @@ class FakeAIProvider(AIProvider):
         return ConteudoGerado(conteudo=conteudo, modelo="fake-model")
 
     def gerar_questionario(
-        self, conteudo_modulo: str, foco_modulo: str | None, quantidade: int
+        self,
+        conteudo_modulo: str,
+        foco_modulo: str | None,
+        quantidade: int,
+        contexto_conversa: str | None = None,
     ) -> QuestionarioGerado:
         self.gerar_questionario_calls += 1
+        self.contextos_conversa_recebidos.append(contexto_conversa)
         if self.falhar_gerar_questionario:
             raise RuntimeError("falha simulada na geração do questionário")
         questoes = [

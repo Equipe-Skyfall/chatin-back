@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 
 from app.db.session import DbSession
@@ -13,18 +13,44 @@ from app.repositories.base import SqlAlchemyRepository
 class MateriaRepository(SqlAlchemyRepository[Materia]):
     model = Materia
 
-    def list_all(self) -> list[Materia]:
-        # Matérias have no `ordem` - they're siblings, not a sequence - so this
-        # is just a stable, human-friendly default listing order.
-        stmt = select(Materia).order_by(Materia.nome)
+    def list_globais(self) -> list[Materia]:
+        """The shared, admin-curated curriculum only - excludes every
+        student's personal trilha. Used wherever "the" curriculum is meant
+        (e.g. the admin agent's `listar_materias` tool)."""
+        stmt = select(Materia).where(Materia.owner_user_id.is_(None)).order_by(Materia.nome)
         return list(self.db.execute(stmt).scalars().all())
 
-    def list_all_with_temas_e_modulos(self) -> list[Materia]:
-        """Eager-loads temas + módulos - used by /trilha and /progresso, which
-        otherwise roll up every módulo under every tema under every matéria.
-        """
+    def list_visiveis(self, user_id: str) -> list[Materia]:
+        """The global curriculum plus this user's own personal trilhas -
+        never another user's. Used by `GET /materias` and anywhere a user's
+        own overview needs to include their personal trilhas alongside the
+        shared curriculum."""
         stmt = (
             select(Materia)
+            .where(or_(Materia.owner_user_id.is_(None), Materia.owner_user_id == user_id))
+            .order_by(Materia.nome)
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
+    def list_globais_with_temas_e_modulos(self) -> list[Materia]:
+        """Eager-loads temas + módulos for the global curriculum only - used
+        by `GET /trilha`, which renders "the" one official path, not any
+        student's personal trilha."""
+        stmt = (
+            select(Materia)
+            .where(Materia.owner_user_id.is_(None))
+            .options(selectinload(Materia.temas).selectinload(Tema.modulos))
+            .order_by(Materia.nome)
+        )
+        return list(self.db.execute(stmt).scalars().unique().all())
+
+    def list_visiveis_with_temas_e_modulos(self, user_id: str) -> list[Materia]:
+        """Same as `list_visiveis`, eager-loaded - used by `GET /progresso`,
+        where a student's own personal trilha progress belongs alongside
+        their progress in the shared curriculum."""
+        stmt = (
+            select(Materia)
+            .where(or_(Materia.owner_user_id.is_(None), Materia.owner_user_id == user_id))
             .options(selectinload(Materia.temas).selectinload(Tema.modulos))
             .order_by(Materia.nome)
         )
