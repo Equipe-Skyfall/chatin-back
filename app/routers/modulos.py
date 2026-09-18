@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, status
 
+from app.core.autorizacao import verificar_acesso_escrita, verificar_acesso_leitura
 from app.core.exceptions import (
     ConteudoModuloNaoEncontradoException,
     ModuloBloqueadoException,
@@ -10,17 +11,20 @@ from app.core.exceptions import (
     TemaNaoEncontradoException,
 )
 from app.deps import (
-    AdminUserId,
     AiProviderDep,
     CurrentUserId,
+    MateriaRepo,
     ModuloRepo,
     ProgressoRepo,
     QuestionarioRepo,
     SettingsDep,
     TemaRepo,
+    TokenPayloadDep,
 )
+from app.models.materia import Materia
 from app.models.modulo import STATUS_PRONTO as MODULO_STATUS_PRONTO
 from app.models.modulo import Modulo
+from app.models.tema import Tema
 from app.schemas.modulo import (
     ConteudoModuloAdminOut,
     ConteudoModuloUpdate,
@@ -37,19 +41,41 @@ from app.services.progresso_service import estado_modulo, estado_tema
 router = APIRouter(tags=["modulos"])
 
 
+def _materia_do_tema(tema: Tema, materia_repo: MateriaRepo) -> Materia:
+    materia = materia_repo.get(tema.materia_id)
+    if materia is None:
+        raise TemaNaoEncontradoException(tema.id)
+    return materia
+
+
+def _tema_e_materia_do_modulo(
+    modulo: Modulo, tema_repo: TemaRepo, materia_repo: MateriaRepo
+) -> tuple[Tema, Materia]:
+    tema = tema_repo.get(modulo.tema_id)
+    if tema is None:
+        raise ModuloNaoEncontradoException(modulo.id)
+    return tema, _materia_do_tema(tema, materia_repo)
+
+
 @router.post(
     "/temas/{tema_id}/modulos", response_model=ModuloOut, status_code=status.HTTP_201_CREATED
 )
 def criar_modulo(
     tema_id: UUID,
     body: ModuloCreate,
-    _admin_id: AdminUserId,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
     tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     modulo_repo: ModuloRepo,
     questionario_repo: QuestionarioRepo,
     ai_provider: AiProviderDep,
     settings: SettingsDep,
 ) -> Modulo:
+    tema = tema_repo.get(tema_id)
+    if tema is None:
+        raise TemaNaoEncontradoException(tema_id)
+    verificar_acesso_escrita(_materia_do_tema(tema, materia_repo), payload)
     return curriculo_service.criar_modulo(
         tema_id,
         body.titulo,
@@ -66,8 +92,10 @@ def criar_modulo(
 @router.post("/temas/{tema_id}/modulos/gerar-automaticamente", response_model=list[ModuloOut])
 def gerar_modulos_automaticamente(
     tema_id: UUID,
-    _admin_id: AdminUserId,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
     tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     modulo_repo: ModuloRepo,
     questionario_repo: QuestionarioRepo,
     ai_provider: AiProviderDep,
@@ -77,6 +105,10 @@ def gerar_modulos_automaticamente(
     generates each one's content + quiz in order, respecting continuity.
     Only works on a tema with no módulos yet - use the endpoint above to add
     módulos one at a time otherwise."""
+    tema = tema_repo.get(tema_id)
+    if tema is None:
+        raise TemaNaoEncontradoException(tema_id)
+    verificar_acesso_escrita(_materia_do_tema(tema, materia_repo), payload)
     return curriculo_service.dividir_tema_em_modulos(
         tema_id,
         settings.QUESTIONARIO_POOL_SIZE,
@@ -91,11 +123,15 @@ def gerar_modulos_automaticamente(
 def listar_modulos(
     tema_id: UUID,
     _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
     tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     modulo_repo: ModuloRepo,
 ) -> list[Modulo]:
-    if tema_repo.get(tema_id) is None:
+    tema = tema_repo.get(tema_id)
+    if tema is None:
         raise TemaNaoEncontradoException(tema_id)
+    verificar_acesso_leitura(_materia_do_tema(tema, materia_repo), payload)
     return modulo_repo.list_by_tema(tema_id)
 
 
@@ -104,9 +140,16 @@ def atualizar_modulo(
     tema_id: UUID,
     modulo_id: UUID,
     body: ModuloUpdate,
-    _admin_id: AdminUserId,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     modulo_repo: ModuloRepo,
 ) -> Modulo:
+    tema = tema_repo.get(tema_id)
+    if tema is None:
+        raise TemaNaoEncontradoException(tema_id)
+    verificar_acesso_escrita(_materia_do_tema(tema, materia_repo), payload)
     return curriculo_service.atualizar_modulo(
         tema_id, modulo_id, body.titulo, body.descricao, body.ordem, modulo_repo
     )
@@ -114,8 +157,18 @@ def atualizar_modulo(
 
 @router.delete("/temas/{tema_id}/modulos/{modulo_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deletar_modulo(
-    tema_id: UUID, modulo_id: UUID, _admin_id: AdminUserId, modulo_repo: ModuloRepo
+    tema_id: UUID,
+    modulo_id: UUID,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
+    modulo_repo: ModuloRepo,
 ) -> None:
+    tema = tema_repo.get(tema_id)
+    if tema is None:
+        raise TemaNaoEncontradoException(tema_id)
+    verificar_acesso_escrita(_materia_do_tema(tema, materia_repo), payload)
     curriculo_service.deletar_modulo(tema_id, modulo_id, modulo_repo)
 
 
@@ -123,14 +176,20 @@ def deletar_modulo(
 def regenerar_modulo(
     tema_id: UUID,
     modulo_id: UUID,
-    _admin_id: AdminUserId,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
     tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     modulo_repo: ModuloRepo,
     questionario_repo: QuestionarioRepo,
     ai_provider: AiProviderDep,
     settings: SettingsDep,
     body: RegenerarModuloRequest | None = None,
 ) -> Modulo:
+    tema = tema_repo.get(tema_id)
+    if tema is None:
+        raise TemaNaoEncontradoException(tema_id)
+    verificar_acesso_escrita(_materia_do_tema(tema, materia_repo), payload)
     return curriculo_service.regenerar_modulo(
         tema_id,
         modulo_id,
@@ -149,7 +208,10 @@ def regenerar_modulo(
 def regenerar_questionario_modulo(
     tema_id: UUID,
     modulo_id: UUID,
-    _admin_id: AdminUserId,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     modulo_repo: ModuloRepo,
     questionario_repo: QuestionarioRepo,
     ai_provider: AiProviderDep,
@@ -157,6 +219,10 @@ def regenerar_questionario_modulo(
 ) -> Modulo:
     """Rerolls just the quiz (one AI call) from the módulo's existing
     content - unlike .../regenerar, this never touches the content itself."""
+    tema = tema_repo.get(tema_id)
+    if tema is None:
+        raise TemaNaoEncontradoException(tema_id)
+    verificar_acesso_escrita(_materia_do_tema(tema, materia_repo), payload)
     return curriculo_service.regenerar_questionario_modulo(
         tema_id,
         modulo_id,
@@ -170,8 +236,10 @@ def regenerar_questionario_modulo(
 @router.post("/temas/{tema_id}/questionarios/regenerar", response_model=list[ModuloOut])
 def regenerar_questionarios_tema(
     tema_id: UUID,
-    _admin_id: AdminUserId,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
     tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     modulo_repo: ModuloRepo,
     questionario_repo: QuestionarioRepo,
     ai_provider: AiProviderDep,
@@ -179,6 +247,10 @@ def regenerar_questionarios_tema(
 ) -> list[Modulo]:
     """Bulk version: rerolls the quiz for every módulo under this tema that
     already has content (one AI call per módulo) - content is untouched."""
+    tema = tema_repo.get(tema_id)
+    if tema is None:
+        raise TemaNaoEncontradoException(tema_id)
+    verificar_acesso_escrita(_materia_do_tema(tema, materia_repo), payload)
     return curriculo_service.regenerar_questionarios_tema(
         tema_id,
         settings.QUESTIONARIO_POOL_SIZE,
@@ -193,8 +265,10 @@ def regenerar_questionarios_tema(
 def obter_modulo(
     modulo_id: UUID,
     user_id: CurrentUserId,
+    payload: TokenPayloadDep,
     modulo_repo: ModuloRepo,
     tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     progresso_repo: ProgressoRepo,
 ) -> ModuloDetailOut:
     modulo = modulo_repo.get(modulo_id)
@@ -202,6 +276,8 @@ def obter_modulo(
         raise ModuloNaoEncontradoException(modulo_id)
 
     tema = tema_repo.get(modulo.tema_id)
+    verificar_acesso_leitura(_materia_do_tema(tema, materia_repo), payload)
+
     temas_da_materia = tema_repo.list_by_materia_with_modulos(tema.materia_id)
     modulo_ids = [m.id for t in temas_da_materia for m in t.modulos]
     progresso_map = {
@@ -225,11 +301,18 @@ def obter_modulo(
 
 @router.get("/modulos/{modulo_id}/conteudo", response_model=ConteudoModuloAdminOut)
 def obter_conteudo_modulo(
-    modulo_id: UUID, _admin_id: AdminUserId, modulo_repo: ModuloRepo
+    modulo_id: UUID,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
+    modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
 ) -> Modulo:
     modulo = modulo_repo.get(modulo_id)
     if modulo is None:
         raise ModuloNaoEncontradoException(modulo_id)
+    _, materia = _tema_e_materia_do_modulo(modulo, tema_repo, materia_repo)
+    verificar_acesso_escrita(materia, payload)
     if modulo.conteudo is None:
         raise ConteudoModuloNaoEncontradoException()
     return modulo
@@ -237,22 +320,40 @@ def obter_conteudo_modulo(
 
 @router.put("/modulos/{modulo_id}/conteudo", response_model=ConteudoModuloAdminOut)
 def atualizar_conteudo_modulo(
-    modulo_id: UUID, body: ConteudoModuloUpdate, _admin_id: AdminUserId, modulo_repo: ModuloRepo
+    modulo_id: UUID,
+    body: ConteudoModuloUpdate,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
+    modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
 ) -> Modulo:
     """Manual edit of the already-generated content - no AI call, unlike
     `POST .../modulos/{id}/regenerar`."""
+    modulo = modulo_repo.get(modulo_id)
+    if modulo is None:
+        raise ModuloNaoEncontradoException(modulo_id)
+    _, materia = _tema_e_materia_do_modulo(modulo, tema_repo, materia_repo)
+    verificar_acesso_escrita(materia, payload)
     return curriculo_service.editar_conteudo_modulo(modulo_id, body.conteudo, modulo_repo)
 
 
 @router.get("/modulos/{modulo_id}/questoes", response_model=list[QuestaoAdminOut])
 def listar_questoes(
     modulo_id: UUID,
-    _admin_id: AdminUserId,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
     modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     questionario_repo: QuestionarioRepo,
 ) -> list[QuestaoAdminOut]:
-    if modulo_repo.get(modulo_id) is None:
+    modulo = modulo_repo.get(modulo_id)
+    if modulo is None:
         raise ModuloNaoEncontradoException(modulo_id)
+    _, materia = _tema_e_materia_do_modulo(modulo, tema_repo, materia_repo)
+    verificar_acesso_escrita(materia, payload)
+
     questionario = questionario_repo.get_by_modulo(modulo_id)
     if questionario is None:
         raise QuestionarioNaoEncontradoException(modulo_id)
@@ -279,12 +380,21 @@ def atualizar_questao(
     modulo_id: UUID,
     questao_id: UUID,
     body: QuestaoUpdate,
-    _admin_id: AdminUserId,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
     modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     questionario_repo: QuestionarioRepo,
 ) -> QuestaoAdminOut:
     """Manual correction of one already-generated questão - no AI call,
     unlike `POST .../modulos/{id}/regenerar`, which rerolls the whole pool."""
+    modulo = modulo_repo.get(modulo_id)
+    if modulo is None:
+        raise ModuloNaoEncontradoException(modulo_id)
+    _, materia = _tema_e_materia_do_modulo(modulo, tema_repo, materia_repo)
+    verificar_acesso_escrita(materia, payload)
+
     alternativas = (
         [{"letra": alt.letra, "texto": alt.texto} for alt in body.alternativas]
         if body.alternativas is not None

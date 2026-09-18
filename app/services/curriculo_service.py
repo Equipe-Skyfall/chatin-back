@@ -69,10 +69,20 @@ def _commit_com_ordem(repo, ordem: int) -> None:
 # --- Matéria ---
 
 
-def criar_materia(nome: str, descricao: str | None, materia_repo: MateriaRepository) -> Materia:
+def criar_materia(
+    nome: str,
+    descricao: str | None,
+    materia_repo: MateriaRepository,
+    *,
+    owner_user_id: str | None = None,
+) -> Materia:
     """Matérias have no `ordem` - they're siblings (Matemática, Física, ...),
-    not a sequence. Ordering starts one level down, at tema (see `criar_tema`)."""
-    materia = Materia(nome=nome, descricao=descricao)
+    not a sequence. Ordering starts one level down, at tema (see `criar_tema`).
+
+    `owner_user_id=None` (the default) creates global, admin-curated content -
+    unchanged behavior. A non-`None` value creates a student's own personal
+    trilha instead - no limit on how many a student can create."""
+    materia = Materia(nome=nome, descricao=descricao, owner_user_id=owner_user_id)
     materia_repo.add(materia)
     materia_repo.commit()
     materia_repo.refresh(materia)
