@@ -7,7 +7,7 @@ import uuid
 
 from sqlalchemy.exc import IntegrityError
 
-from app.models.conversa import Conversa
+from app.models.conversa import Conversa, Mensagem
 from app.models.modulo import Modulo
 from app.models.progresso import STATUS_DISPONIVEL, ProgressoUsuario
 from app.models.questao import Questao
@@ -53,6 +53,104 @@ class InMemoryModuloRepository:
 
     def commit(self) -> None:
         pass
+
+
+def _distancia_cosseno(a: list[float], b: list[float]) -> float:
+    """Same ranking semantics as pgvector's `<=>` operator (1 - cosine
+    similarity) - a plain-Python stand-in so
+    `InMemoryConversaRepository.buscar_memorias_similares` can be unit
+    tested without a real Postgres/pgvector."""
+    produto = sum(x * y for x, y in zip(a, b, strict=True))
+    norma_a = sum(x * x for x in a) ** 0.5
+    norma_b = sum(y * y for y in b) ** 0.5
+    if norma_a == 0 or norma_b == 0:
+        return 1.0
+    return 1.0 - produto / (norma_a * norma_b)
+
+
+class InMemoryConversaRepository:
+    """Combined fake: what `historico_cache`/`memoria_longo_prazo_service`
+    need (Redis short-term cache fallback + pgvector long-term memory
+    retrieval) plus what `questionario_personalizado_service` needs
+    (conversation text as generation grounding). `add`/`commit` are no-ops
+    that just keep the in-memory dict in sync."""
+
+    def __init__(self):
+        self.db = _FakeSession()
+        self._conversas: dict[uuid.UUID, Conversa] = {}
+
+    def seed(self, conversa_ou_id, mensagens: list[Mensagem] | None = None) -> None:
+        """Two forms: `seed(conversa)` with an already-built `Conversa`
+        (its `.id` is used as-is), or `seed(conversa_id, mensagens)` -
+        builds a minimal `Conversa` around that id and message list."""
+        if isinstance(conversa_ou_id, Conversa):
+            self._conversas[conversa_ou_id.id] = conversa_ou_id
+            return
+        conversa = Conversa(id=conversa_ou_id)
+        conversa.mensagens = mensagens or []
+        self._conversas[conversa_ou_id] = conversa
+
+    def get_with_mensagens(self, conversa_id: uuid.UUID) -> Conversa | None:
+        return self._conversas.get(conversa_id)
+
+    def add(self, conversa: Conversa) -> Conversa:
+        self._conversas[conversa.id] = conversa
+        return conversa
+
+    def commit(self) -> None:
+        pass
+
+    def add_mensagem(self, mensagem: Mensagem) -> Mensagem:
+        self._conversas[mensagem.conversa_id].mensagens.append(mensagem)
+        return mensagem
+
+    def proxima_ordem(self, conversa_id: uuid.UUID) -> int:
+        conversa = self._conversas.get(conversa_id)
+        return len(conversa.mensagens) if conversa else 0
+
+    def tocar(self, conversa_id: uuid.UUID) -> None:
+        pass
+
+    def list_by_user_and_modulo(
+        self, user_id: str, modulo_id: uuid.UUID, tipo: str, excluir_id: uuid.UUID
+    ) -> list[Conversa]:
+        return [
+            c
+            for c in self._conversas.values()
+            if c.user_id == user_id
+            and c.modulo_id == modulo_id
+            and c.tipo == tipo
+            and c.id != excluir_id
+        ]
+
+    def list_by_user_and_modulo_with_mensagens(
+        self, user_id: str, modulo_id: uuid.UUID, tipo: str
+    ) -> list[Conversa]:
+        return [
+            c
+            for c in self._conversas.values()
+            if c.user_id == user_id and c.modulo_id == modulo_id and c.tipo == tipo
+        ]
+
+    def buscar_memorias_similares(
+        self,
+        user_id: str,
+        modulo_id: uuid.UUID,
+        query_embedding: list[float],
+        limite: int,
+        excluir_id: uuid.UUID,
+    ) -> list[str]:
+        candidatas = [
+            c
+            for c in self._conversas.values()
+            if c.user_id == user_id
+            and c.modulo_id == modulo_id
+            and c.id != excluir_id
+            and c.memoria_embedding is not None
+            and c.memoria_chave
+        ]
+        candidatas.sort(key=lambda c: _distancia_cosseno(c.memoria_embedding, query_embedding))
+        return [c.memoria_chave for c in candidatas[:limite]]
 
 
 class InMemoryQuestionarioRepository:
@@ -263,24 +361,3 @@ class InMemoryXpRepository:
             for e in self.eventos
             if e.user_id == user_id and e.materia_id == materia_id
         )
-
-
-class InMemoryConversaRepository:
-    """Only what `questionario_personalizado_service` needs -
-    `list_by_user_and_modulo_with_mensagens`, seeded directly."""
-
-    def __init__(self):
-        self.db = _FakeSession()
-        self._conversas: list[Conversa] = []
-
-    def seed(self, conversa: Conversa) -> None:
-        self._conversas.append(conversa)
-
-    def list_by_user_and_modulo_with_mensagens(
-        self, user_id: str, modulo_id: uuid.UUID, tipo: str
-    ) -> list[Conversa]:
-        return [
-            c
-            for c in self._conversas
-            if c.user_id == user_id and c.modulo_id == modulo_id and c.tipo == tipo
-        ]

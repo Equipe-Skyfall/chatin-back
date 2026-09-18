@@ -6,7 +6,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import selectinload
 
 from app.db.session import DbSession
-from app.models.conversa import Conversa, Mensagem
+from app.models.conversa import TIPO_ALUNO, Conversa, Mensagem
 from app.repositories.base import SqlAlchemyRepository
 
 
@@ -62,6 +62,52 @@ class ConversaRepository(SqlAlchemyRepository[Conversa]):
         self.db.execute(
             update(Conversa).where(Conversa.id == conversa_id).values(updated_at=func.now())
         )
+
+    def list_by_user_and_modulo(
+        self, user_id: str, modulo_id: uuid.UUID, tipo: str, excluir_id: uuid.UUID
+    ) -> list[Conversa]:
+        """Every *other* conversa this student had scoped to this módulo -
+        candidates for `memoria_longo_prazo_service` to (lazily) keep
+        indexed for semantic retrieval."""
+        stmt = (
+            select(Conversa)
+            .where(
+                Conversa.user_id == user_id,
+                Conversa.modulo_id == modulo_id,
+                Conversa.tipo == tipo,
+                Conversa.id != excluir_id,
+            )
+            .options(selectinload(Conversa.mensagens))
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
+    def buscar_memorias_similares(
+        self,
+        user_id: str,
+        modulo_id: uuid.UUID,
+        query_embedding: list[float],
+        limite: int,
+        excluir_id: uuid.UUID,
+    ) -> list[str]:
+        """Top-`limite` `memoria_chave` texts from this student's other
+        conversas about this módulo, ranked by cosine distance to
+        `query_embedding` (pgvector's `<=>` operator via
+        `Vector.cosine_distance`) - only conversas with an embedding already
+        indexed (see `memoria_longo_prazo_service.atualizar_memorias_do_modulo`,
+        called before this)."""
+        stmt = (
+            select(Conversa.memoria_chave)
+            .where(
+                Conversa.user_id == user_id,
+                Conversa.modulo_id == modulo_id,
+                Conversa.tipo == TIPO_ALUNO,
+                Conversa.id != excluir_id,
+                Conversa.memoria_embedding.is_not(None),
+            )
+            .order_by(Conversa.memoria_embedding.cosine_distance(query_embedding))
+            .limit(limite)
+        )
+        return [chave for chave in self.db.execute(stmt).scalars().all() if chave]
 
 
 def get_conversa_repository(db: DbSession) -> ConversaRepository:

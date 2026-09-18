@@ -1,3 +1,5 @@
+import hashlib
+
 from app.ai.base import AIProvider
 from app.ai.schemas import (
     AlternativaGerada,
@@ -39,8 +41,19 @@ class FakeAIProvider(AIProvider):
         self.responder_pergunta_aluno_calls = 0
         self.resumir_conversa_calls = 0
         self.conteudos_modulo_recebidos: list[str | None] = []
+        self.memorias_relevantes_recebidas: list[list[str] | None] = []
         self.falhar_responder_pergunta_aluno = False
         self.falhar_resumir_conversa = False
+        self.extrair_memoria_conversa_calls = 0
+        self.falhar_extrair_memoria_conversa = False
+        self.memoria_extraida_fixa: str | None = None
+        self.gerar_embedding_calls = 0
+        self.falhar_gerar_embedding = False
+        # Test control: assign a specific vector to a specific text so
+        # similarity-ranking tests are deterministic and legible, instead of
+        # relying on hash collisions/near-misses. Unregistered texts fall
+        # back to a stable hash-derived vector (same text -> same vector).
+        self.embeddings_fixos: dict[str, list[float]] = {}
 
     def buscar_fontes(
         self, tema_titulo: str, tema_descricao: str | None, direcionamento: str | None = None
@@ -139,9 +152,11 @@ class FakeAIProvider(AIProvider):
         historico: list[MensagemAgente],
         pergunta: str,
         conteudo_modulo: str | None = None,
+        memorias_relevantes: list[str] | None = None,
     ) -> str:
         self.responder_pergunta_aluno_calls += 1
         self.conteudos_modulo_recebidos.append(conteudo_modulo)
+        self.memorias_relevantes_recebidas.append(memorias_relevantes)
         if self.falhar_responder_pergunta_aluno:
             raise RuntimeError("falha simulada ao responder pergunta do aluno")
         return f"Resposta de teste para: {pergunta}"
@@ -151,3 +166,18 @@ class FakeAIProvider(AIProvider):
         if self.falhar_resumir_conversa:
             raise RuntimeError("falha simulada ao resumir conversa")
         return "Resumo de teste da conversa."
+
+    def extrair_memoria_conversa(self, mensagens: list[MensagemAgente]) -> str:
+        self.extrair_memoria_conversa_calls += 1
+        if self.falhar_extrair_memoria_conversa:
+            raise RuntimeError("falha simulada ao extrair memória da conversa")
+        return self.memoria_extraida_fixa or "Fato de teste extraído da conversa."
+
+    def gerar_embedding(self, texto: str) -> list[float]:
+        self.gerar_embedding_calls += 1
+        if self.falhar_gerar_embedding:
+            raise RuntimeError("falha simulada ao gerar embedding")
+        if texto in self.embeddings_fixos:
+            return self.embeddings_fixos[texto]
+        digest = hashlib.sha256(texto.encode()).digest()
+        return [b / 255 for b in digest[:8]]

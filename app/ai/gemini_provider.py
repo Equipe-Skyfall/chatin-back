@@ -23,6 +23,7 @@ from app.ai.gemini_schemas import PLANO_MODULOS_RESPONSE_SCHEMA, QUESTIONARIO_RE
 from app.ai.prompts import (
     AGENTE_ADMIN_SYSTEM_INSTRUCTION,
     prompt_buscar_fontes,
+    prompt_extrair_memoria_conversa,
     prompt_gerar_conteudo_modulo,
     prompt_gerar_questionario,
     prompt_planejar_modulos,
@@ -45,6 +46,7 @@ from app.ai.schemas import (
 )
 from app.config import Settings
 from app.core.exceptions import AgenteLimiteExcedidoException, ProvedorIAIndisponivelException
+from app.models.conversa import EMBEDDING_DIM
 
 logger = logging.getLogger(__name__)
 
@@ -463,6 +465,7 @@ class GeminiProvider(AIProvider):
         historico: list[MensagemAgente],
         pergunta: str,
         conteudo_modulo: str | None = None,
+        memorias_relevantes: list[str] | None = None,
     ) -> str:
         contents = [self._para_content(m) for m in historico]
         contents.append(self._para_content(MensagemAgente(papel="user", conteudo=pergunta)))
@@ -471,7 +474,9 @@ class GeminiProvider(AIProvider):
                 model=self._settings.GEMINI_MODEL_PROFESSOR,
                 contents=contents,
                 config=types.GenerateContentConfig(
-                    system_instruction=prompt_professor_aluno_system(conteudo_modulo)
+                    system_instruction=prompt_professor_aluno_system(
+                        conteudo_modulo, memorias_relevantes
+                    )
                 ),
             )
         except Exception as exc:  # noqa: BLE001
@@ -500,3 +505,42 @@ class GeminiProvider(AIProvider):
         if not texto:
             raise ProvedorIAIndisponivelException("O provedor de IA retornou um resumo vazio.")
         return texto
+
+    @_retry_transient
+    def extrair_memoria_conversa(self, mensagens: list[MensagemAgente]) -> str:
+        contents = [self._para_content(m) for m in mensagens]
+        try:
+            response = self._client.models.generate_content(
+                model=self._settings.GEMINI_MODEL_PROFESSOR,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=prompt_extrair_memoria_conversa()
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise ProvedorIAIndisponivelException(
+                f"Falha ao extrair memória da conversa: {exc}"
+            ) from exc
+
+        texto = (getattr(response, "text", None) or "").strip()
+        if not texto:
+            raise ProvedorIAIndisponivelException(
+                "O provedor de IA retornou uma extração de memória vazia."
+            )
+        return texto
+
+    @_retry_transient
+    def gerar_embedding(self, texto: str) -> list[float]:
+        try:
+            response = self._client.models.embed_content(
+                model=self._settings.GEMINI_MODEL_EMBEDDING,
+                contents=texto,
+                config=types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIM),
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise ProvedorIAIndisponivelException(f"Falha ao gerar embedding: {exc}") from exc
+
+        embeddings = getattr(response, "embeddings", None) or []
+        if not embeddings or not embeddings[0].values:
+            raise ProvedorIAIndisponivelException("O provedor de IA retornou um embedding vazio.")
+        return list(embeddings[0].values)
