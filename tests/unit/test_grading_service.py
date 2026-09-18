@@ -241,6 +241,117 @@ def test_iniciar_tentativa_tema_retoma_tentativa_de_modulo_em_andamento(
     assert len(tentativa_repo.tentativas) == 1
 
 
+def test_iniciar_tentativa_exclui_questoes_personalizadas_da_amostra(
+    questionario_repo, tentativa_repo
+):
+    """A questão marcada `personalizada=True` (gerada sob demanda, grounded
+    na conversa de um aluno) nunca pode ser sorteada pelo questionário de
+    conclusão de módulo - é o que impede um aluno de fazer prompt injection
+    numa questão que vale nota pra qualquer um."""
+    questionario, questoes, gabarito_map = _seed_pool(questionario_repo, num_questoes=3)
+    questao_personalizada = questoes[0]
+    questao_personalizada.personalizada = True
+
+    tentativa, selecionadas = grading_service.iniciar_tentativa(
+        questionario.id, uuid.uuid4(), 3, questionario_repo, tentativa_repo
+    )
+
+    assert questao_personalizada.id not in {q.id for q in selecionadas}
+    assert tentativa.total_questoes == 2  # só as 2 não-personalizadas
+
+
+def test_iniciar_tentativa_tema_exclui_questoes_personalizadas(questionario_repo, tentativa_repo):
+    tema_id = uuid.uuid4()
+    questionario, questoes, _ = _seed_pool(questionario_repo, num_questoes=3)
+    questoes[0].personalizada = True
+    questionario_repo.seed_pool_tema(
+        tema_id, questionario_repo.get_questao_ids_pool_graduavel(questionario.id)
+    )
+
+    _, selecionadas = grading_service.iniciar_tentativa_tema(
+        tema_id, uuid.uuid4(), 3, questionario_repo, tentativa_repo
+    )
+
+    assert questoes[0].id not in {q.id for q in selecionadas}
+
+
+def test_iniciar_tentativa_resume_honesto_quando_ha_pratica_aberta(
+    questionario_repo, tentativa_repo
+):
+    """Se o aluno tem uma tentativa `pratica` aberta e chama o endpoint
+    valendo nota, a tentativa devolvida é honestamente a `pratica` aberta
+    (o cliente confere `pratica`/`questionario_id` na resposta) - o backend
+    nunca finge que virou uma tentativa valendo nota."""
+    questionario, _, _ = _seed_pool(questionario_repo, num_questoes=12)
+    user_id = uuid.uuid4()
+
+    tentativa_pratica, _ = grading_service.iniciar_tentativa_com_pool(
+        questionario_repo.get_questao_ids_pool(questionario.id),
+        user_id,
+        5,
+        questionario_repo,
+        tentativa_repo,
+        questionario_id=questionario.id,
+        tema_id=None,
+        pratica=True,
+    )
+
+    tentativa_retomada, _ = grading_service.iniciar_tentativa(
+        questionario.id, user_id, 5, questionario_repo, tentativa_repo
+    )
+
+    assert tentativa_retomada.id == tentativa_pratica.id
+    assert tentativa_retomada.pratica is True  # continua sendo prática, não vira valendo nota
+
+
+class _RepoComJanelaDeCorrida:
+    """Envolve um `InMemoryTentativaRepository` real, mas faz a *primeira*
+    chamada a `get_questionario_aberto_by_user` devolver `None` mesmo que já
+    exista uma tentativa aberta - simula a janela de corrida real (a leitura
+    de uma requisição concorrente acontece antes do insert da outra virar
+    visível). Chamadas seguintes (a re-checagem depois do IntegrityError)
+    delegam pro repositório real normalmente."""
+
+    def __init__(self, repo):
+        self._repo = repo
+        self._primeira_checagem = True
+
+    def get_questionario_aberto_by_user(self, user_id):
+        if self._primeira_checagem:
+            self._primeira_checagem = False
+            return None
+        return self._repo.get_questionario_aberto_by_user(user_id)
+
+    def __getattr__(self, nome):
+        return getattr(self._repo, nome)
+
+
+def test_iniciar_tentativa_perde_race_de_concorrencia_retoma_a_vencedora(
+    questionario_repo, tentativa_repo
+):
+    """Simula duas requisições concorrentes pro mesmo aluno: as duas
+    checagens de "tem tentativa aberta?" veem `None` (nenhuma foi
+    inserida ainda), mas só um insert vence - o outro esbarra no índice
+    único parcial (`flush` levanta `IntegrityError`) e, em vez de propagar
+    um 500, retoma a tentativa que a primeira já criou."""
+    questionario, _, _ = _seed_pool(questionario_repo, num_questoes=12)
+    user_id = uuid.uuid4()
+
+    tentativa_vencedora, _ = grading_service.iniciar_tentativa(
+        questionario.id, user_id, 5, questionario_repo, tentativa_repo
+    )
+
+    tentativa_repo.falhar_proximo_flush = True
+    repo_com_corrida = _RepoComJanelaDeCorrida(tentativa_repo)
+
+    tentativa_2, _ = grading_service.iniciar_tentativa(
+        questionario.id, user_id, 5, questionario_repo, repo_com_corrida
+    )
+
+    assert tentativa_2.id == tentativa_vencedora.id
+    assert len(tentativa_repo.tentativas) == 1
+
+
 def test_iniciar_tentativa_tema_mistura_pools_de_varios_modulos(questionario_repo, tentativa_repo):
     tema_id = uuid.uuid4()
     _, questoes_1, _ = _seed_pool(questionario_repo, num_questoes=6)

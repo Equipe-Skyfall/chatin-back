@@ -5,6 +5,8 @@ dicts/lists instead of a database. Used by service-layer unit tests
 
 import uuid
 
+from sqlalchemy.exc import IntegrityError
+
 from app.models.conversa import Conversa
 from app.models.modulo import Modulo
 from app.models.progresso import STATUS_DISPONIVEL, ProgressoUsuario
@@ -87,6 +89,13 @@ class InMemoryQuestionarioRepository:
     def get_questao_ids_pool(self, questionario_id: uuid.UUID) -> list[uuid.UUID]:
         return [q.id for q in self.questoes.values() if q.questionario_id == questionario_id]
 
+    def get_questao_ids_pool_graduavel(self, questionario_id: uuid.UUID) -> list[uuid.UUID]:
+        return [
+            q.id
+            for q in self.questoes.values()
+            if q.questionario_id == questionario_id and not q.personalizada
+        ]
+
     def get_questoes_by_ids(self, questao_ids: list[uuid.UUID]) -> list[Questao]:
         return [self.questoes[qid] for qid in questao_ids if qid in self.questoes]
 
@@ -125,15 +134,27 @@ class InMemoryQuestionarioRepository:
 
 class InMemoryTentativaRepository:
     def __init__(self):
+        self.db = _FakeSession()
         self.tentativas: dict[uuid.UUID, Tentativa] = {}
+        self._pendentes: list[Tentativa] = []
         self._questoes_por_tentativa: dict[uuid.UUID, set[uuid.UUID]] = {}
         self.respostas: list[RespostaTentativa] = []
+        # Test control: makes the *next* `flush()` raise `IntegrityError`
+        # (and discard whatever was pending, mirroring a real rollback) -
+        # like a real race against the partial unique index would. See
+        # `grading_service.iniciar_tentativa_com_pool`'s IntegrityError catch.
+        self.falhar_proximo_flush = False
 
     def add(self, tentativa: Tentativa) -> Tentativa:
         if tentativa.id is None:
             tentativa.id = uuid.uuid4()
-        self.tentativas[tentativa.id] = tentativa
+        self._pendentes.append(tentativa)
         return tentativa
+
+    def _persistir_pendentes(self) -> None:
+        for tentativa in self._pendentes:
+            self.tentativas[tentativa.id] = tentativa
+        self._pendentes.clear()
 
     def get(self, tentativa_id: uuid.UUID) -> Tentativa | None:
         return self.tentativas.get(tentativa_id)
@@ -148,7 +169,9 @@ class InMemoryTentativaRepository:
         return set(self._questoes_por_tentativa.get(tentativa_id, set()))
 
     def get_questionario_aberto_by_user(self, user_id: str) -> Tentativa | None:
-        for tentativa in self.tentativas.values():
+        # Most-recently-added first, mirroring the real repository's
+        # `order_by(created_at.desc())` for tests that add sequentially.
+        for tentativa in reversed(list(self.tentativas.values())):
             if tentativa.user_id == user_id and tentativa.status == STATUS_EM_ANDAMENTO:
                 return tentativa
         return None
@@ -170,10 +193,14 @@ class InMemoryTentativaRepository:
         return sum(pontuacoes) / len(pontuacoes) if pontuacoes else None
 
     def flush(self) -> None:
-        pass
+        if self.falhar_proximo_flush:
+            self.falhar_proximo_flush = False
+            self._pendentes.clear()
+            raise IntegrityError("insert", {}, Exception("unique violation (fake)"))
+        self._persistir_pendentes()
 
     def commit(self) -> None:
-        pass
+        self._persistir_pendentes()
 
     def refresh(self, entity) -> None:
         pass

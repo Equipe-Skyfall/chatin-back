@@ -1,5 +1,8 @@
 import uuid
 
+import pytest
+
+from app.core.exceptions import GeracaoConteudoFalhouException
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, TIPO_ALUNO, Conversa, Mensagem
 from app.services import questionario_personalizado_service
 from tests.builders.modulo_builder import ModuloBuilder
@@ -139,6 +142,96 @@ def test_usa_conversa_do_aluno_como_contexto(questionario_repo, fake_ai_provider
         c is not None and "limite lateral" in c
         for c in fake_ai_provider.contextos_conversa_recebidos
     )
+
+
+def test_questoes_geradas_ficam_marcadas_personalizada(questionario_repo, fake_ai_provider):
+    """As questões geradas sob demanda nunca podem ser sorteadas pelo
+    questionário valendo nota - ver `get_questao_ids_pool_graduavel`."""
+    _, questionario, modulo_repo = _setup(questionario_repo, num_questoes_existentes=3)
+    tentativa_repo = InMemoryTentativaRepository()
+    conversa_repo = InMemoryConversaRepository()
+
+    questionario_personalizado_service.gerar_tentativa_personalizada(
+        questionario.modulo_id,
+        "user-1",
+        12,
+        5,
+        modulo_repo,
+        questionario_repo,
+        conversa_repo,
+        tentativa_repo,
+        fake_ai_provider,
+    )
+
+    todas = questionario_repo.get_questao_ids_pool(questionario.id)
+    graduaveis = questionario_repo.get_questao_ids_pool_graduavel(questionario.id)
+    assert len(todas) == 12
+    assert len(graduaveis) == 3  # só as 3 originais - as 9 novas são personalizada=True
+    novas = questionario_repo.get_questoes_by_ids(set(todas) - set(graduaveis))
+    assert all(q.personalizada for q in novas)
+
+
+def test_tentativa_aberta_evita_chamada_de_ia(questionario_repo, fake_ai_provider):
+    """Ordem importa: se o aluno já tem um questionário aberto, a checagem
+    precisa vir *antes* de qualquer chamada de IA - senão paga o custo de
+    gerar questões novas só pra descartar a resposta em favor da aberta."""
+    _, questionario, modulo_repo = _setup(questionario_repo, num_questoes_existentes=1)
+    tentativa_repo = InMemoryTentativaRepository()
+    conversa_repo = InMemoryConversaRepository()
+    user_id = "user-1"
+
+    tentativa_aberta, _ = questionario_personalizado_service.gerar_tentativa_personalizada(
+        questionario.modulo_id,
+        user_id,
+        1,
+        1,
+        modulo_repo,
+        questionario_repo,
+        conversa_repo,
+        tentativa_repo,
+        fake_ai_provider,
+    )
+    assert fake_ai_provider.gerar_questionario_calls == 0  # pool já tinha 1, não precisou gerar
+
+    # pool pequeno de propósito - se a checagem de tentativa aberta viesse
+    # depois da geração, essa segunda chamada dispararia gerar_questionario
+    tentativa_2, _ = questionario_personalizado_service.gerar_tentativa_personalizada(
+        questionario.modulo_id,
+        user_id,
+        12,  # pool_minimo bem maior que o que existe - geraria 11 questões
+        5,
+        modulo_repo,
+        questionario_repo,
+        conversa_repo,
+        tentativa_repo,
+        fake_ai_provider,
+    )
+
+    assert tentativa_2.id == tentativa_aberta.id
+    assert fake_ai_provider.gerar_questionario_calls == 0
+
+
+def test_falha_na_geracao_faz_rollback_sem_deixar_pool_parcial(questionario_repo, fake_ai_provider):
+    _, questionario, modulo_repo = _setup(questionario_repo, num_questoes_existentes=3)
+    tentativa_repo = InMemoryTentativaRepository()
+    conversa_repo = InMemoryConversaRepository()
+    fake_ai_provider.falhar_gerar_questionario = True
+
+    with pytest.raises(GeracaoConteudoFalhouException):
+        questionario_personalizado_service.gerar_tentativa_personalizada(
+            questionario.modulo_id,
+            "user-1",
+            12,
+            5,
+            modulo_repo,
+            questionario_repo,
+            conversa_repo,
+            tentativa_repo,
+            fake_ai_provider,
+        )
+
+    # nenhuma questão nova deve ter ficado meio-persistida
+    assert len(questionario_repo.get_questao_ids_pool(questionario.id)) == 3
 
 
 def test_nao_conta_para_progresso_ao_responder(questionario_repo, fake_ai_provider):
