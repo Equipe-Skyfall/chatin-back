@@ -12,6 +12,8 @@ from app.core.exceptions import (
     TentativaNaoEncontradaException,
 )
 from app.deps import (
+    AiProviderDep,
+    ConversaRepo,
     CurrentUserId,
     MateriaRepo,
     ModuloRepo,
@@ -28,7 +30,7 @@ from app.models.tema import STATUS_PRONTO as TEMA_STATUS_PRONTO
 from app.schemas.progresso import ProgressoOut
 from app.schemas.questionario import AlternativaOut, QuestaoOut, TentativaIniciarOut
 from app.schemas.tentativa import ResponderRequest, TentativaHistoricoOut, TentativaResultadoOut
-from app.services import grading_service
+from app.services import grading_service, questionario_personalizado_service
 from app.services.progresso_service import (
     atualizar_progresso,
     estado_modulo,
@@ -39,19 +41,17 @@ from app.services.progresso_service import (
 router = APIRouter(tags=["tentativas"])
 
 
-@router.post("/modulos/{modulo_id}/tentativas", response_model=TentativaIniciarOut)
-def iniciar_tentativa(
+def _verificar_modulo_disponivel(
     modulo_id: UUID,
-    user_id: CurrentUserId,
+    user_id: str,
     payload: TokenPayloadDep,
     modulo_repo: ModuloRepo,
     tema_repo: TemaRepo,
     materia_repo: MateriaRepo,
     progresso_repo: ProgressoRepo,
-    questionario_repo: QuestionarioRepo,
-    tentativa_repo: TentativaRepo,
-    settings: SettingsDep,
-) -> TentativaIniciarOut:
+):
+    """Shared by `iniciar_tentativa` and `gerar_questionario_personalizado` -
+    both need the módulo ready and unlocked before starting anything."""
     modulo = modulo_repo.get(modulo_id)
     if modulo is None or modulo.status != MODULO_STATUS_PRONTO:
         raise ModuloNaoEncontradoException(modulo_id)
@@ -71,15 +71,10 @@ def iniciar_tentativa(
     tema_com_modulos = next(t for t in temas_da_materia if t.id == tema.id)
     if estado_modulo(modulo, tema_com_modulos.modulos, tema_est, progresso_map) == "bloqueado":
         raise ModuloBloqueadoException()
+    return modulo
 
-    questionario = questionario_repo.get_by_modulo(modulo_id)
-    if questionario is None:
-        raise QuestionarioNaoEncontradoException(modulo_id)
 
-    tentativa, questoes = grading_service.iniciar_tentativa(
-        questionario.id, user_id, settings.TENTATIVA_NUM_QUESTOES, questionario_repo, tentativa_repo
-    )
-
+def _tentativa_iniciar_out(tentativa, questoes: list) -> TentativaIniciarOut:
     return TentativaIniciarOut(
         tentativa_id=tentativa.id,
         questoes=[
@@ -91,7 +86,74 @@ def iniciar_tentativa(
             )
             for idx, q in enumerate(questoes)
         ],
+        pratica=tentativa.pratica,
+        questionario_id=tentativa.questionario_id,
+        tema_id=tentativa.tema_id,
     )
+
+
+@router.post("/modulos/{modulo_id}/tentativas", response_model=TentativaIniciarOut)
+def iniciar_tentativa(
+    modulo_id: UUID,
+    user_id: CurrentUserId,
+    payload: TokenPayloadDep,
+    modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
+    progresso_repo: ProgressoRepo,
+    questionario_repo: QuestionarioRepo,
+    tentativa_repo: TentativaRepo,
+    settings: SettingsDep,
+) -> TentativaIniciarOut:
+    _verificar_modulo_disponivel(
+        modulo_id, user_id, payload, modulo_repo, tema_repo, materia_repo, progresso_repo
+    )
+
+    questionario = questionario_repo.get_by_modulo(modulo_id)
+    if questionario is None:
+        raise QuestionarioNaoEncontradoException(modulo_id)
+
+    tentativa, questoes = grading_service.iniciar_tentativa(
+        questionario.id, user_id, settings.TENTATIVA_NUM_QUESTOES, questionario_repo, tentativa_repo
+    )
+    return _tentativa_iniciar_out(tentativa, questoes)
+
+
+@router.post("/modulos/{modulo_id}/questionario-personalizado", response_model=TentativaIniciarOut)
+def gerar_questionario_personalizado(
+    modulo_id: UUID,
+    user_id: CurrentUserId,
+    payload: TokenPayloadDep,
+    modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
+    progresso_repo: ProgressoRepo,
+    questionario_repo: QuestionarioRepo,
+    conversa_repo: ConversaRepo,
+    tentativa_repo: TentativaRepo,
+    ai_provider: AiProviderDep,
+    settings: SettingsDep,
+) -> TentativaIniciarOut:
+    """Aluno-triggered practice quiz, grounded in the módulo's content plus
+    the student's own conversation about it - unlike `iniciar_tentativa`,
+    may call the AI (only for however many questions the pool is short of -
+    see `questionario_personalizado_service`) and never affects progress/XP."""
+    _verificar_modulo_disponivel(
+        modulo_id, user_id, payload, modulo_repo, tema_repo, materia_repo, progresso_repo
+    )
+
+    tentativa, questoes = questionario_personalizado_service.gerar_tentativa_personalizada(
+        modulo_id,
+        user_id,
+        settings.QUESTIONARIO_POOL_SIZE,
+        settings.TENTATIVA_NUM_QUESTOES,
+        modulo_repo,
+        questionario_repo,
+        conversa_repo,
+        tentativa_repo,
+        ai_provider,
+    )
+    return _tentativa_iniciar_out(tentativa, questoes)
 
 
 @router.post("/temas/{tema_id}/tentativas", response_model=TentativaIniciarOut)
@@ -127,19 +189,7 @@ def iniciar_tentativa_tema(
     tentativa, questoes = grading_service.iniciar_tentativa_tema(
         tema_id, user_id, settings.TENTATIVA_NUM_QUESTOES, questionario_repo, tentativa_repo
     )
-
-    return TentativaIniciarOut(
-        tentativa_id=tentativa.id,
-        questoes=[
-            QuestaoOut(
-                id=q.id,
-                ordem=idx,
-                enunciado=q.enunciado,
-                alternativas=[AlternativaOut(**alt) for alt in q.alternativas],
-            )
-            for idx, q in enumerate(questoes)
-        ],
-    )
+    return _tentativa_iniciar_out(tentativa, questoes)
 
 
 @router.post("/tentativas/{tentativa_id}/responder", response_model=TentativaResultadoOut)
@@ -163,7 +213,7 @@ def responder_tentativa(
         tentativa, body.respostas, questionario_repo, tentativa_repo
     )
 
-    if tentativa.questionario_id is not None:
+    if tentativa.questionario_id is not None and not tentativa.pratica:
         modulo_id = tentativa.questionario.modulo_id
         modulo = modulo_repo.get(modulo_id)
         tema = tema_repo.get(modulo.tema_id)
@@ -177,7 +227,7 @@ def responder_tentativa(
             xp_repo,
         )
         progresso_repo.commit()
-    # a tema-scoped (review) attempt is practice only - no progress/XP change
+    # a tema-scoped (review) or `pratica` attempt is practice only - no progress/XP change
 
     return TentativaResultadoOut(
         id=tentativa.id,

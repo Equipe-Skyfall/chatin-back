@@ -7,12 +7,34 @@ from sqlalchemy.orm import selectinload
 
 from app.db.session import DbSession
 from app.models.questionario import Questionario
-from app.models.tentativa import STATUS_CONCLUIDA, RespostaTentativa, Tentativa, TentativaQuestao
+from app.models.tentativa import (
+    STATUS_CONCLUIDA,
+    STATUS_EM_ANDAMENTO,
+    RespostaTentativa,
+    Tentativa,
+    TentativaQuestao,
+)
 from app.repositories.base import SqlAlchemyRepository
 
 
 class TentativaRepository(SqlAlchemyRepository[Tentativa]):
     model = Tentativa
+
+    def get_questionario_aberto_by_user(self, user_id: str) -> Tentativa | None:
+        """The student's single open (unfinished) questionário, if any -
+        regardless of scope (módulo, tema-review, or personalized), and
+        regardless of whether the student ever comes back to finish it.
+        Backs the 1-open-questionário-at-a-time limit: `grading_service`
+        forces resuming this one instead of starting a second one - a
+        student can't get around an abandoned attempt by just starting
+        another."""
+        stmt = (
+            select(Tentativa)
+            .where(Tentativa.user_id == user_id, Tentativa.status == STATUS_EM_ANDAMENTO)
+            .options(selectinload(Tentativa.questoes_selecionadas))
+            .order_by(Tentativa.created_at.desc())
+        )
+        return self.db.execute(stmt).scalars().first()
 
     def add_tentativa_questoes(self, itens: list[TentativaQuestao]) -> None:
         self.db.add_all(itens)

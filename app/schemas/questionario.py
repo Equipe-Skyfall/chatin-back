@@ -24,8 +24,18 @@ class QuestaoOut(BaseModel):
 
 
 class TentativaIniciarOut(BaseModel):
+    """Always describes the tentativa actually returned - which, because of
+    the 1-open-questionário-at-a-time limit, may not be the mode/scope the
+    caller just asked for (e.g. `POST .../tentativas` can hand back an open
+    `pratica` tentativa the student never finished). `pratica`/
+    `questionario_id`/`tema_id` let the client render this honestly instead
+    of assuming it always matches the endpoint it called."""
+
     tentativa_id: UUID
     questoes: list[QuestaoOut]
+    pratica: bool
+    questionario_id: UUID | None = None
+    tema_id: UUID | None = None
 
 
 class QuestaoAdminOut(BaseModel):

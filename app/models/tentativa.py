@@ -58,6 +58,12 @@ class Tentativa(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=STATUS_EM_ANDAMENTO)
     pontuacao: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     total_questoes: Mapped[int] = mapped_column(Integer, nullable=False)
+    # True for a módulo-scoped attempt that should NOT count toward
+    # progress/XP - today that's only the on-demand personalized quiz (see
+    # `questionario_personalizado_service`); a tema-scoped attempt already
+    # skips progress/XP unconditionally (it has no single módulo to credit),
+    # regardless of this flag.
+    pratica: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     total_corretas: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     questionario: Mapped["Questionario | None"] = relationship()

@@ -173,9 +173,7 @@ class AdkProvider(AIProvider):
                 if event.grounding_metadata is not None:
                     grounding = event.grounding_metadata
                 if event.is_final_response() and event.content and event.content.parts:
-                    texto_final = "".join(
-                        part.text for part in event.content.parts if part.text
-                    )
+                    texto_final = "".join(part.text for part in event.content.parts if part.text)
             return texto_final, grounding
 
         return asyncio.run(_run())
@@ -189,9 +187,15 @@ class AdkProvider(AIProvider):
 
     @_retry_transient
     def gerar_questionario(
-        self, conteudo_modulo: str, foco_modulo: str | None, quantidade: int
+        self,
+        conteudo_modulo: str,
+        foco_modulo: str | None,
+        quantidade: int,
+        contexto_conversa: str | None = None,
     ) -> QuestionarioGerado:
-        prompt = prompt_gerar_questionario(conteudo_modulo, foco_modulo, quantidade)
+        prompt = prompt_gerar_questionario(
+            conteudo_modulo, foco_modulo, quantidade, contexto_conversa
+        )
         try:
             raw = self._run_single_turn(self._questionario_agent, prompt)
         except ProvedorIAIndisponivelException:
@@ -385,9 +389,7 @@ class AdkProvider(AIProvider):
                         f"Falha na conversa com o agente: {event.error_message}"
                     )
                 if event.is_final_response() and event.content and event.content.parts:
-                    texto_final = "".join(
-                        part.text for part in event.content.parts if part.text
-                    )
+                    texto_final = "".join(part.text for part in event.content.parts if part.text)
             return texto_final
 
         try:
