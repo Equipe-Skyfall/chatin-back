@@ -30,6 +30,7 @@ from app.repositories.xp_repository import XpRepo
 
 __all__ = [
     "SettingsDep",
+    "TokenPayloadDep",
     "CurrentUserId",
     "AdminUserId",
     "AiProviderDep",

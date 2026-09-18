@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
+from app.core.autorizacao import verificar_acesso_leitura
 from app.core.exceptions import (
     ModuloBloqueadoException,
     ModuloNaoEncontradoException,
@@ -21,6 +22,7 @@ from app.deps import (
     SettingsDep,
     TemaRepo,
     TentativaRepo,
+    TokenPayloadDep,
     XpRepo,
 )
 from app.models.modulo import STATUS_PRONTO as MODULO_STATUS_PRONTO
@@ -42,8 +44,10 @@ router = APIRouter(tags=["tentativas"])
 def _verificar_modulo_disponivel(
     modulo_id: UUID,
     user_id: str,
+    payload: TokenPayloadDep,
     modulo_repo: ModuloRepo,
     tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     progresso_repo: ProgressoRepo,
 ):
     """Shared by `iniciar_tentativa` and `gerar_questionario_personalizado` -
@@ -53,6 +57,11 @@ def _verificar_modulo_disponivel(
         raise ModuloNaoEncontradoException(modulo_id)
 
     tema = tema_repo.get(modulo.tema_id)
+    materia = materia_repo.get(tema.materia_id)
+    if materia is None:
+        raise ModuloNaoEncontradoException(modulo_id)
+    verificar_acesso_leitura(materia, payload)
+
     temas_da_materia = tema_repo.list_by_materia_with_modulos(tema.materia_id)
     modulo_ids = [m.id for t in temas_da_materia for m in t.modulos]
     progresso_map = {
@@ -87,14 +96,18 @@ def _tentativa_iniciar_out(tentativa, questoes: list) -> TentativaIniciarOut:
 def iniciar_tentativa(
     modulo_id: UUID,
     user_id: CurrentUserId,
+    payload: TokenPayloadDep,
     modulo_repo: ModuloRepo,
     tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     progresso_repo: ProgressoRepo,
     questionario_repo: QuestionarioRepo,
     tentativa_repo: TentativaRepo,
     settings: SettingsDep,
 ) -> TentativaIniciarOut:
-    _verificar_modulo_disponivel(modulo_id, user_id, modulo_repo, tema_repo, progresso_repo)
+    _verificar_modulo_disponivel(
+        modulo_id, user_id, payload, modulo_repo, tema_repo, materia_repo, progresso_repo
+    )
 
     questionario = questionario_repo.get_by_modulo(modulo_id)
     if questionario is None:
@@ -110,8 +123,10 @@ def iniciar_tentativa(
 def gerar_questionario_personalizado(
     modulo_id: UUID,
     user_id: CurrentUserId,
+    payload: TokenPayloadDep,
     modulo_repo: ModuloRepo,
     tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     progresso_repo: ProgressoRepo,
     questionario_repo: QuestionarioRepo,
     conversa_repo: ConversaRepo,
@@ -123,7 +138,9 @@ def gerar_questionario_personalizado(
     the student's own conversation about it - unlike `iniciar_tentativa`,
     may call the AI (only for however many questions the pool is short of -
     see `questionario_personalizado_service`) and never affects progress/XP."""
-    _verificar_modulo_disponivel(modulo_id, user_id, modulo_repo, tema_repo, progresso_repo)
+    _verificar_modulo_disponivel(
+        modulo_id, user_id, payload, modulo_repo, tema_repo, materia_repo, progresso_repo
+    )
 
     tentativa, questoes = questionario_personalizado_service.gerar_tentativa_personalizada(
         modulo_id,
@@ -143,7 +160,9 @@ def gerar_questionario_personalizado(
 def iniciar_tentativa_tema(
     tema_id: UUID,
     user_id: CurrentUserId,
+    payload: TokenPayloadDep,
     tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     progresso_repo: ProgressoRepo,
     questionario_repo: QuestionarioRepo,
     tentativa_repo: TentativaRepo,
@@ -154,6 +173,10 @@ def iniciar_tentativa_tema(
     tema = tema_repo.get(tema_id)
     if tema is None or tema.status != TEMA_STATUS_PRONTO:
         raise TemaNaoEncontradoException(tema_id)
+    materia = materia_repo.get(tema.materia_id)
+    if materia is None:
+        raise TemaNaoEncontradoException(tema_id)
+    verificar_acesso_leitura(materia, payload)
 
     temas_da_materia = tema_repo.list_by_materia_with_modulos(tema.materia_id)
     modulo_ids = [m.id for t in temas_da_materia for m in t.modulos]
@@ -243,7 +266,7 @@ def obter_progresso(
     progresso_repo: ProgressoRepo,
     xp_repo: XpRepo,
 ) -> ProgressoOut:
-    materias = materia_repo.list_all_with_temas_e_modulos()
+    materias = materia_repo.list_visiveis_with_temas_e_modulos(user_id)
     modulo_ids = [m.id for materia in materias for tema in materia.temas for m in tema.modulos]
     progresso_rows = progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
     xp_por_materia = {m.id: xp_repo.total_por_usuario_e_materia(user_id, m.id) for m in materias}

@@ -110,6 +110,7 @@ class OrdemDuplicadaException(AppException):
         )
 
 
+
 # --- 403s (access / lock state) ---
 
 
