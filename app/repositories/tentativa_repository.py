@@ -32,6 +32,7 @@ class TentativaRepository(SqlAlchemyRepository[Tentativa]):
             select(Tentativa)
             .where(Tentativa.user_id == user_id, Tentativa.status == STATUS_EM_ANDAMENTO)
             .options(selectinload(Tentativa.questoes_selecionadas))
+            .order_by(Tentativa.created_at.desc())
         )
         return self.db.execute(stmt).scalars().first()
 
