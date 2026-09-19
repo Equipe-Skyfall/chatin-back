@@ -44,7 +44,7 @@ def _deletar_materia(args: dict[str, Any], ctx: FerramentaContexto) -> str:
 
 
 def _listar_materias(_args: dict[str, Any], ctx: FerramentaContexto) -> str:
-    materias = ctx.materia_repo.list_globais()
+    materias = ctx.materia_repo.list_all()
     if not materias:
         return "Nenhuma matéria cadastrada ainda."
     return "\n".join(f"- {m.nome} (id={m.id})" for m in materias)

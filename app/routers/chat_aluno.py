@@ -3,14 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter
 
 from app.core.exceptions import ConversaNaoEncontradaException, ModuloNaoEncontradoException
-from app.deps import (
-    AiProviderDep,
-    ConversaRepo,
-    CurrentUserId,
-    ModuloRepo,
-    RedisCliente,
-    SettingsDep,
-)
+from app.deps import AiProviderDep, ConversaRepo, CurrentUserId, ModuloRepo, SettingsDep
 from app.models.conversa import TIPO_ALUNO, Conversa
 from app.schemas.chat import (
     AlunoChatMensagemInput,
@@ -31,7 +24,6 @@ def enviar_mensagem(
     conversa_repo: ConversaRepo,
     modulo_repo: ModuloRepo,
     ai_provider: AiProviderDep,
-    redis_cliente: RedisCliente,
     settings: SettingsDep,
 ) -> ChatRespostaOut:
     if body.conversa_id is not None:
@@ -57,9 +49,7 @@ def enviar_mensagem(
         conversa_repo,
         modulo_repo,
         ai_provider,
-        redis_cliente,
         settings.MEMORIA_JANELA_MENSAGENS,
-        settings.MEMORIA_LONGO_PRAZO_LIMITE,
     )
     return ChatRespostaOut(conversa_id=conversa.id, resposta=resposta)
 

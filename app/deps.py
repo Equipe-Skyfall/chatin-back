@@ -9,7 +9,6 @@ routers still only need one import line: `from app.deps import ...`.
 from functools import lru_cache
 from typing import Annotated
 
-import redis
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -18,7 +17,6 @@ from app.ai.base import AIProvider
 from app.ai.gemini_provider import GeminiProvider
 from app.config import Settings, get_settings
 from app.core.exceptions import NaoAutenticadoException
-from app.core.redis_client import get_redis_cliente
 from app.core.security import TokenPayload, decode_token, require_admin_role
 from app.repositories.conversa_repository import ConversaRepo
 from app.repositories.materia_repository import MateriaRepo
@@ -32,7 +30,6 @@ from app.repositories.xp_repository import XpRepo
 
 __all__ = [
     "SettingsDep",
-    "TokenPayloadDep",
     "CurrentUserId",
     "AdminUserId",
     "AiProviderDep",
@@ -45,7 +42,6 @@ __all__ = [
     "ConversaRepo",
     "XpRepo",
     "PerfilRepo",
-    "RedisCliente",
 ]
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -112,5 +108,3 @@ def get_ai_provider() -> AIProvider:
 
 
 AiProviderDep = Annotated[AIProvider, Depends(get_ai_provider)]
-
-RedisCliente = Annotated[redis.Redis | None, Depends(get_redis_cliente)]
