@@ -1,9 +1,6 @@
 services:
   postgres:
-    # pgvector/pgvector:pg16 - drop-in Postgres 16 with the `vector`
-    # extension pre-installed, needed by the long-term memory feature
-    # (`migrations/versions/..._conversa_memoria_pgvector.py`).
-    image: pgvector/pgvector:pg16
+    image: postgres:16-alpine
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -18,11 +15,6 @@ services:
       timeout: 5s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-
   app:
     build: .
     ports:
@@ -32,8 +24,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_started
     volumes:
       - ./app:/srv/app:z
       - ./migrations:/srv/migrations:z

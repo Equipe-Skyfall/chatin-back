@@ -26,11 +26,10 @@ internally (capped via `RunConfig(max_llm_calls=...)`), which is what makes
 `AIProvider.conversar_com_ferramentas` return one final string instead of one
 round trip at a time.
 
-The remaining `AIProvider` methods (`responder_pergunta_aluno`/
-`resumir_conversa`/`extrair_memoria_conversa`/`gerar_embedding`, all part of
-the student chat and its long-term memory) still delegate, by composition,
-to an internal `GeminiProvider` instance - migrating them to the same
-persistent `SessionService` is a follow-up, not required by this phase. This keeps
+The remaining two `AIProvider` methods (`responder_pergunta_aluno`/
+`resumir_conversa`, the student chat) still delegate, by composition, to an
+internal `GeminiProvider` instance - migrating them to the same persistent
+`SessionService` is a follow-up, not required by this phase. This keeps
 `AI_PROVIDER=adk` fully functional in production from Fase 1 onward, with
 `AI_PROVIDER=gemini` remaining available as an instant rollback.
 """
@@ -462,17 +461,8 @@ class AdkProvider(AIProvider):
         historico: list[MensagemAgente],
         pergunta: str,
         conteudo_modulo: str | None = None,
-        memorias_relevantes: list[str] | None = None,
     ) -> str:
-        return self._gemini.responder_pergunta_aluno(
-            historico, pergunta, conteudo_modulo, memorias_relevantes
-        )
+        return self._gemini.responder_pergunta_aluno(historico, pergunta, conteudo_modulo)
 
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         return self._gemini.resumir_conversa(mensagens)
-
-    def extrair_memoria_conversa(self, mensagens: list[MensagemAgente]) -> str:
-        return self._gemini.extrair_memoria_conversa(mensagens)
-
-    def gerar_embedding(self, texto: str) -> list[float]:
-        return self._gemini.gerar_embedding(texto)

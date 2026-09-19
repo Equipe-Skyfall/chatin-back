@@ -2,7 +2,6 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
@@ -17,12 +16,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models._mixins import CreatedAtMixin, TimestampMixin, UUIDPrimaryKeyMixin
-
-# Fixed at the column's own schema (changing it means a new migration
-# recreating the column) - not a runtime setting, unlike the AI model name
-# that produces it (`Settings.GEMINI_MODEL_EMBEDDING`). 768 matches Gemini's
-# `gemini-embedding-001` at `output_dimensionality=768`.
-EMBEDDING_DIM = 768
 
 if TYPE_CHECKING:
     from app.models.modulo import Modulo
@@ -49,14 +42,6 @@ class Conversa(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     generated summary of the conversation so far - regenerated lazily
     whenever it's read and stale (see `chat_aluno_service`), not on every
     message, to avoid an AI call per turn.
-
-    `memoria_chave`/`memoria_embedding`/`memoria_gerada_em` are this
-    conversation's long-term memory - a short IA extraction of key
-    facts/difficulties/preferences (not a narrative like `resumo`) plus its
-    embedding, generated lazily the same way, and used to semantically
-    retrieve this conversation from a *different, later* one about the same
-    módulo (see `memoria_longo_prazo_service`). Unlike `resumo`, this exists
-    purely for the AI's own grounding - never shown to the student directly.
     """
 
     __tablename__ = "conversas"
@@ -72,13 +57,6 @@ class Conversa(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     resumo: Mapped[str | None] = mapped_column(Text, nullable=True)
     resumo_gerado_em: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    memoria_chave: Mapped[str | None] = mapped_column(Text, nullable=True)
-    memoria_embedding: Mapped[list[float] | None] = mapped_column(
-        Vector(EMBEDDING_DIM), nullable=True
-    )
-    memoria_gerada_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

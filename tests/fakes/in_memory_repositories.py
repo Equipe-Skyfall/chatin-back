@@ -55,29 +55,21 @@ class InMemoryModuloRepository:
         pass
 
 
-def _distancia_cosseno(a: list[float], b: list[float]) -> float:
-    """Same ranking semantics as pgvector's `<=>` operator (1 - cosine
-    similarity) - a plain-Python stand-in so
-    `InMemoryConversaRepository.buscar_memorias_similares` can be unit
-    tested without a real Postgres/pgvector."""
-    produto = sum(x * y for x, y in zip(a, b, strict=True))
-    norma_a = sum(x * x for x in a) ** 0.5
-    norma_b = sum(y * y for y in b) ** 0.5
-    if norma_a == 0 or norma_b == 0:
-        return 1.0
-    return 1.0 - produto / (norma_a * norma_b)
-
-
 class InMemoryConversaRepository:
-    """Combined fake: what `historico_cache`/`memoria_longo_prazo_service`
-    need (Redis short-term cache fallback + pgvector long-term memory
-    retrieval) plus what `questionario_personalizado_service` needs
+    """Combined fake: what `chat_aluno_service` needs (history window,
+    message persistence) plus what `questionario_personalizado_service` needs
     (conversation text as generation grounding). `add`/`commit` are no-ops
     that just keep the in-memory dict in sync."""
 
     def __init__(self):
         self.db = _FakeSession()
         self._conversas: dict[uuid.UUID, Conversa] = {}
+        self.rollbacks = 0
+        self._ultima_mensagem: Mensagem | None = None
+        # Test control: makes the *next* `commit()` raise `IntegrityError`
+        # and discard the message just added, like losing a race on the
+        # unique (conversa_id, ordem) constraint would.
+        self.falhar_proximo_commit = False
 
     def seed(self, conversa_ou_id, mensagens: list[Mensagem] | None = None) -> None:
         """Two forms: `seed(conversa)` with an already-built `Conversa`
@@ -98,10 +90,20 @@ class InMemoryConversaRepository:
         return conversa
 
     def commit(self) -> None:
-        pass
+        if self.falhar_proximo_commit:
+            self.falhar_proximo_commit = False
+            if self._ultima_mensagem is not None:
+                self._conversas[self._ultima_mensagem.conversa_id].mensagens.remove(
+                    self._ultima_mensagem
+                )
+            raise IntegrityError("insert", {}, Exception("unique violation (fake)"))
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
 
     def add_mensagem(self, mensagem: Mensagem) -> Mensagem:
         self._conversas[mensagem.conversa_id].mensagens.append(mensagem)
+        self._ultima_mensagem = mensagem
         return mensagem
 
     def proxima_ordem(self, conversa_id: uuid.UUID) -> int:
@@ -111,18 +113,6 @@ class InMemoryConversaRepository:
     def tocar(self, conversa_id: uuid.UUID) -> None:
         pass
 
-    def list_by_user_and_modulo(
-        self, user_id: str, modulo_id: uuid.UUID, tipo: str, excluir_id: uuid.UUID
-    ) -> list[Conversa]:
-        return [
-            c
-            for c in self._conversas.values()
-            if c.user_id == user_id
-            and c.modulo_id == modulo_id
-            and c.tipo == tipo
-            and c.id != excluir_id
-        ]
-
     def list_by_user_and_modulo_with_mensagens(
         self, user_id: str, modulo_id: uuid.UUID, tipo: str
     ) -> list[Conversa]:
@@ -131,26 +121,6 @@ class InMemoryConversaRepository:
             for c in self._conversas.values()
             if c.user_id == user_id and c.modulo_id == modulo_id and c.tipo == tipo
         ]
-
-    def buscar_memorias_similares(
-        self,
-        user_id: str,
-        modulo_id: uuid.UUID,
-        query_embedding: list[float],
-        limite: int,
-        excluir_id: uuid.UUID,
-    ) -> list[str]:
-        candidatas = [
-            c
-            for c in self._conversas.values()
-            if c.user_id == user_id
-            and c.modulo_id == modulo_id
-            and c.id != excluir_id
-            and c.memoria_embedding is not None
-            and c.memoria_chave
-        ]
-        candidatas.sort(key=lambda c: _distancia_cosseno(c.memoria_embedding, query_embedding))
-        return [c.memoria_chave for c in candidatas[:limite]]
 
 
 class InMemoryQuestionarioRepository:
