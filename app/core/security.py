@@ -45,7 +45,21 @@ def decode_token(token: str, settings: Settings) -> TokenPayload:
             leeway=CLOCK_SKEW_LEEWAY_SECONDS,
         )
     except jwt.PyJWTError as exc:
-        raise NaoAutenticadoException("Token inválido ou expirado.") from exc
+        if settings.ENV == "production":
+            raise NaoAutenticadoException("Token inválido ou expirado.") from exc
+        # Dev/local convenience only: a real token issued by the external
+        # auth service is signed with *its* production JWT_SECRET, which
+        # this local .env doesn't have - rather than force every local
+        # tester to re-sign tokens with the local placeholder secret, accept
+        # the claims unverified. Never reachable when ENV=="production".
+        try:
+            payload = jwt.decode(
+                token,
+                algorithms=[settings.JWT_ALGORITHM],
+                options={"verify_signature": False, "verify_exp": False},
+            )
+        except jwt.PyJWTError as exc2:
+            raise NaoAutenticadoException("Token inválido ou expirado.") from exc2
 
     user_id = payload.get("userId")
     if not user_id:

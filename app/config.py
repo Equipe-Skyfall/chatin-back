@@ -51,7 +51,15 @@ class Settings(BaseSettings):
     MEMORIA_LONGO_PRAZO_LIMITE: int = 3  # top-K past conversas retrieved per turn
 
     # App
-    ENV: str = "local"
+    # "production" is the fail-safe default (never assume dev leniency just
+    # because this var was left unset) - dev/local setups must say so
+    # explicitly. See `app.core.security.decode_token` for the one behavior
+    # this gates: outside "production", a token that fails signature
+    # verification against this service's own JWT_SECRET is still accepted
+    # (unverified) rather than rejected, so tokens issued for real by the
+    # external auth service (which has its own production secret this local
+    # .env doesn't have) can be used for local testing too.
+    ENV: Literal["local", "production"] = "production"
     LOG_LEVEL: str = "INFO"
     CORS_ORIGINS: str = "http://localhost:3000"
 
