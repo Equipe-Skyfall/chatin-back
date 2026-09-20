@@ -2,14 +2,18 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
+from app.core.autorizacao import verificar_acesso_leitura
 from app.core.exceptions import ConversaNaoEncontradaException, ModuloNaoEncontradoException
 from app.deps import (
     AiProviderDep,
     ConversaRepo,
     CurrentUserId,
+    MateriaRepo,
     ModuloRepo,
     RedisCliente,
     SettingsDep,
+    TemaRepo,
+    TokenPayloadDep,
 )
 from app.models.conversa import TIPO_ALUNO, Conversa
 from app.schemas.chat import (
@@ -27,9 +31,12 @@ router = APIRouter(prefix="/chat", tags=["chat-aluno"])
 @router.post("", response_model=ChatRespostaOut)
 def enviar_mensagem(
     body: AlunoChatMensagemInput,
+    payload: TokenPayloadDep,
     user_id: CurrentUserId,
     conversa_repo: ConversaRepo,
     modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
     ai_provider: AiProviderDep,
     redis_cliente: RedisCliente,
     settings: SettingsDep,
@@ -39,8 +46,15 @@ def enviar_mensagem(
         if conversa is None or conversa.user_id != user_id or conversa.tipo != TIPO_ALUNO:
             raise ConversaNaoEncontradaException(body.conversa_id)
     else:
-        if body.modulo_id is not None and modulo_repo.get(body.modulo_id) is None:
-            raise ModuloNaoEncontradoException(body.modulo_id)
+        if body.modulo_id is not None:
+            modulo = modulo_repo.get(body.modulo_id)
+            if modulo is None:
+                raise ModuloNaoEncontradoException(body.modulo_id)
+            tema = tema_repo.get(modulo.tema_id)
+            materia = tema and materia_repo.get(tema.materia_id)
+            if tema is None or materia is None:
+                raise ModuloNaoEncontradoException(body.modulo_id)
+            verificar_acesso_leitura(materia, payload)
         conversa = Conversa(
             user_id=user_id,
             titulo=body.texto[:200],
