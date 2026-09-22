@@ -83,17 +83,20 @@ class AIProvider(ABC):
         building/invoking the tools now, not just declaring them."""
 
     @abstractmethod
-    def responder_pergunta_aluno(
+    def conversar_com_agente_aluno(
         self,
-        historico: list[MensagemAgente],
-        pergunta: str,
-        conteudo_modulo: str | None = None,
+        mensagens: list[MensagemAgente],
+        conteudo_modulo: str | None,
+        ctx: FerramentaContexto,
     ) -> str:
-        """Grounded Q&A for a student - deliberately NOT tool-calling (unlike
-        `conversar_com_ferramentas`): the model sees only `conteudo_modulo`
-        (the módulo the student is currently studying, if any) plus the
-        conversation history, and returns its reply text directly. No agent
-        loop, no function calls, no access to any other data."""
+        """The student agent's tool-calling loop - same shape as
+        `conversar_com_ferramentas`, but a much smaller, non-destructive
+        tool set (`agent_tools_aluno.py`: search the public curriculum, see
+        own performance, create own trilha), and grounded in
+        `conteudo_modulo` (the módulo this conversation is scoped to, if
+        any) the same way the old plain Q&A used to be. `mensagens` is the
+        full history including the turn just asked, same convention as
+        `conversar_com_ferramentas`."""
 
     @abstractmethod
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:

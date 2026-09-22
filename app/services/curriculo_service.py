@@ -69,10 +69,21 @@ def _commit_com_ordem(repo, ordem: int) -> None:
 # --- Matéria ---
 
 
-def criar_materia(nome: str, descricao: str | None, materia_repo: MateriaRepository) -> Materia:
+def criar_materia(
+    nome: str,
+    descricao: str | None,
+    materia_repo: MateriaRepository,
+    *,
+    owner_user_id: str | None = None,
+) -> Materia:
     """Matérias have no `ordem` - they're siblings (Matemática, Física, ...),
-    not a sequence. Ordering starts one level down, at tema (see `criar_tema`)."""
-    materia = Materia(nome=nome, descricao=descricao)
+    not a sequence. Ordering starts one level down, at tema (see `criar_tema`).
+
+    `owner_user_id=None` (the default) creates global, admin-curated content.
+    A non-`None` value creates a student's own trilha instead - publicly
+    visible/votable by everyone, writable only by its owner (see
+    `app/core/autorizacao.py`); no limit on how many a student can create."""
+    materia = Materia(nome=nome, descricao=descricao, owner_user_id=owner_user_id)
     materia_repo.add(materia)
     materia_repo.commit()
     materia_repo.refresh(materia)
@@ -109,19 +120,24 @@ def deletar_materia(materia_id: uuid.UUID, materia_repo: MateriaRepository) -> N
 # --- Tema ---
 
 
-def criar_tema(
+def criar_tema_pendente(
     materia_id: uuid.UUID,
     titulo: str,
     descricao: str | None,
     materia_repo: MateriaRepository,
     tema_repo: TemaRepository,
-    ai_provider: AIProvider,
     *,
     direcionamento: str | None = None,
 ) -> Tema:
-    """Always appended after this matéria's existing temas - `ordem` isn't a
-    creation-time input (see `TemaCreate`); use `atualizar_tema` to reorder
-    afterward."""
+    """Inserts the Tema row (status `'gerando'`) and returns immediately -
+    no AI call. Always appended after this matéria's existing temas -
+    `ordem` isn't a creation-time input (see `TemaCreate`); use
+    `atualizar_tema` to reorder afterward.
+
+    Split out from `criar_tema` so `POST /materias/{id}/temas` can respond
+    right away and run the slow part (`buscar_fontes_tema`, a real AI call)
+    as a background task instead of blocking the request for it - see
+    `app/services/trilha_pessoal_service.py`."""
     if materia_repo.get(materia_id) is None:
         raise MateriaNaoEncontradaException(materia_id)
 
@@ -138,7 +154,28 @@ def criar_tema(
     tema_repo.add(tema)
     _commit_com_ordem(tema_repo, ordem)
     tema_repo.refresh(tema)
+    return tema
 
+
+def criar_tema(
+    materia_id: uuid.UUID,
+    titulo: str,
+    descricao: str | None,
+    materia_repo: MateriaRepository,
+    tema_repo: TemaRepository,
+    ai_provider: AIProvider,
+    *,
+    direcionamento: str | None = None,
+) -> Tema:
+    """Synchronous all-in-one: insert + `buscar_fontes_tema` in the same
+    call, blocking until done (this can take a while - it's a real AI call).
+    Kept for the admin chat agent's `criar_tema` tool, which has no
+    background-task mechanism to hand off to and already runs under its own
+    iteration budget; REST callers (`POST /materias/{id}/temas`) use
+    `criar_tema_pendente` plus a background task instead."""
+    tema = criar_tema_pendente(
+        materia_id, titulo, descricao, materia_repo, tema_repo, direcionamento=direcionamento
+    )
     buscar_fontes_tema(tema, tema_repo, ai_provider)
     tema_repo.refresh(tema)
     return tema

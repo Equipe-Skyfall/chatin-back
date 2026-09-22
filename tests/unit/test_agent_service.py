@@ -51,8 +51,12 @@ def _ctx(conversa_id: uuid.UUID) -> FerramentaContexto:
         tema_repo=None,
         modulo_repo=None,
         questionario_repo=None,
+        xp_repo=None,
+        progresso_repo=None,
+        voto_repo=None,
         ai_provider=None,
         pool_size=12,
+        user_id="admin-1",
         conversa_id=conversa_id,
     )
 

@@ -26,10 +26,12 @@ from app.repositories.progresso_repository import ProgressoRepo
 from app.repositories.questionario_repository import QuestionarioRepo
 from app.repositories.tema_repository import TemaRepo
 from app.repositories.tentativa_repository import TentativaRepo
+from app.repositories.voto_repository import VotoRepo
 from app.repositories.xp_repository import XpRepo
 
 __all__ = [
     "SettingsDep",
+    "TokenPayloadDep",
     "CurrentUserId",
     "AdminUserId",
     "AiProviderDep",
@@ -42,6 +44,7 @@ __all__ = [
     "ConversaRepo",
     "XpRepo",
     "PerfilRepo",
+    "VotoRepo",
 ]
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]

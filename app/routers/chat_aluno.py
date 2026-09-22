@@ -1,9 +1,23 @@
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 
+from app.ai.adk_provider import AdkProvider
+from app.ai.schemas import FerramentaContexto
 from app.core.exceptions import ConversaNaoEncontradaException, ModuloNaoEncontradoException
-from app.deps import AiProviderDep, ConversaRepo, CurrentUserId, ModuloRepo, SettingsDep
+from app.deps import (
+    AiProviderDep,
+    ConversaRepo,
+    CurrentUserId,
+    MateriaRepo,
+    ModuloRepo,
+    ProgressoRepo,
+    QuestionarioRepo,
+    SettingsDep,
+    TemaRepo,
+    VotoRepo,
+    XpRepo,
+)
 from app.models.conversa import TIPO_ALUNO, Conversa
 from app.schemas.chat import (
     AlunoChatMensagemInput,
@@ -22,9 +36,16 @@ def enviar_mensagem(
     body: AlunoChatMensagemInput,
     user_id: CurrentUserId,
     conversa_repo: ConversaRepo,
+    materia_repo: MateriaRepo,
+    tema_repo: TemaRepo,
     modulo_repo: ModuloRepo,
+    questionario_repo: QuestionarioRepo,
+    xp_repo: XpRepo,
+    progresso_repo: ProgressoRepo,
+    voto_repo: VotoRepo,
     ai_provider: AiProviderDep,
     settings: SettingsDep,
+    background_tasks: BackgroundTasks,
 ) -> ChatRespostaOut:
     if body.conversa_id is not None:
         conversa = conversa_repo.get(body.conversa_id)
@@ -43,12 +64,27 @@ def enviar_mensagem(
         conversa_repo.commit()
         conversa_repo.refresh(conversa)
 
+    ctx = FerramentaContexto(
+        materia_repo=materia_repo,
+        tema_repo=tema_repo,
+        modulo_repo=modulo_repo,
+        questionario_repo=questionario_repo,
+        xp_repo=xp_repo,
+        progresso_repo=progresso_repo,
+        voto_repo=voto_repo,
+        ai_provider=ai_provider,
+        pool_size=settings.QUESTIONARIO_POOL_SIZE,
+        user_id=user_id,
+        conversa_id=conversa.id,
+        background_tasks=background_tasks,
+    )
     resposta = chat_aluno_service.enviar_mensagem(
         conversa,
         body.texto,
         conversa_repo,
         modulo_repo,
         ai_provider,
+        ctx,
         settings.MEMORIA_JANELA_MENSAGENS,
     )
     return ChatRespostaOut(conversa_id=conversa.id, resposta=resposta)
@@ -84,8 +120,17 @@ def listar_resumos(
 
 
 @router.get("/{conversa_id}", response_model=list[MensagemOut])
-def obter_historico(conversa_id: UUID, user_id: CurrentUserId, conversa_repo: ConversaRepo) -> list:
+def obter_historico(
+    conversa_id: UUID,
+    user_id: CurrentUserId,
+    conversa_repo: ConversaRepo,
+    ai_provider: AiProviderDep,
+) -> list:
     conversa = conversa_repo.get_with_mensagens(conversa_id)
     if conversa is None or conversa.user_id != user_id or conversa.tipo != TIPO_ALUNO:
         raise ConversaNaoEncontradaException(conversa_id)
+    if isinstance(ai_provider, AdkProvider):
+        historico_adk = ai_provider.obter_historico_sessao(conversa_id)
+        if historico_adk is not None:
+            return historico_adk
     return conversa.mensagens

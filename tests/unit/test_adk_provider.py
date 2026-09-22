@@ -180,7 +180,6 @@ def test_buscar_fontes_sem_grounding_usa_fallback(provider):
 @pytest.mark.parametrize(
     "metodo,args",
     [
-        ("responder_pergunta_aluno", ([], "pergunta")),
         ("resumir_conversa", ([],)),
     ],
 )
@@ -211,8 +210,12 @@ def _ctx(conversa_id=None) -> FerramentaContexto:
         tema_repo=MagicMock(),
         modulo_repo=MagicMock(),
         questionario_repo=MagicMock(),
+        xp_repo=MagicMock(),
+        progresso_repo=MagicMock(),
+        voto_repo=MagicMock(),
         ai_provider=MagicMock(),
         pool_size=12,
+        user_id="admin-1",
         conversa_id=conversa_id or uuid.uuid4(),
     )
 

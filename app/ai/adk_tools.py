@@ -24,6 +24,7 @@ from collections.abc import Callable
 from app.ai.adk_schemas import AlternativaSchema, Letra
 from app.ai.schemas import FerramentaContexto
 from app.services.agent_tools import executar_ferramenta
+from app.services.agent_tools_aluno import executar_ferramenta_aluno
 
 
 def construir_tools(ctx: FerramentaContexto) -> list[Callable]:
@@ -302,3 +303,60 @@ def construir_tools(ctx: FerramentaContexto) -> list[Callable]:
         listar_questoes,
         editar_questao,
     ]
+
+
+def construir_tools_aluno(ctx: FerramentaContexto) -> list[Callable]:
+    """The student agent's 3 tools, same closure-over-`ctx` shape as
+    `construir_tools` above - see its docstring for why a closure and not
+    `functools.partial`."""
+
+    def buscar_conteudo(termo: str) -> str:
+        """Busca, pelo nome/descrição, matérias sobre um assunto - tanto do
+        currículo oficial quanto trilhas criadas por outros alunos (públicas
+        e votáveis). Use antes de responder uma pergunta de assunto amplo,
+        ou antes de oferecer criar uma trilha nova, para checar se já existe
+        algo parecido.
+
+        Args:
+            termo: O que buscar (ex.: 'cálculo', 'funções quadráticas').
+        """
+        return executar_ferramenta_aluno("buscar_conteudo", {"termo": termo}, ctx)
+
+    def meu_desempenho(materia_nome: str | None = None) -> str:
+        """Retorna o XP e o progresso do aluno, opcionalmente filtrado por
+        matéria - incluindo em quais módulos ele teve nota baixa (sinal de
+        dificuldade). Use para adaptar a explicação ou sugerir o que
+        revisar.
+
+        Args:
+            materia_nome: Opcional - filtra por uma matéria específica.
+        """
+        return executar_ferramenta_aluno(
+            "meu_desempenho", {"materia_nome": materia_nome}, ctx
+        )
+
+    def criar_minha_trilha(
+        nome_materia: str, titulo_tema: str, descricao_tema: str | None = None
+    ) -> str:
+        """Cria uma trilha própria do aluno (matéria + tema) quando
+        buscar_conteudo não encontrou nada satisfatório sobre o assunto. A
+        geração do conteúdo roda em segundo plano - avise o aluno que vai
+        levar um tempo, não prometa que já está pronto. A trilha fica
+        pública e outros alunos podem votar nela.
+
+        Args:
+            nome_materia: Nome da matéria (ex.: 'Química Orgânica').
+            titulo_tema: Título do primeiro tema dessa trilha.
+            descricao_tema: Descrição opcional do foco desse tema.
+        """
+        return executar_ferramenta_aluno(
+            "criar_minha_trilha",
+            {
+                "nome_materia": nome_materia,
+                "titulo_tema": titulo_tema,
+                "descricao_tema": descricao_tema,
+            },
+            ctx,
+        )
+
+    return [buscar_conteudo, meu_desempenho, criar_minha_trilha]

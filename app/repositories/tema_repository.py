@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import Depends
@@ -42,6 +43,14 @@ class TemaRepository(SqlAlchemyRepository[Tema]):
     def atualizar_status(self, tema: Tema, status: str) -> None:
         tema.status = status
         self.db.add(tema)
+
+    def list_travados_desde(self, status: str, limite: datetime) -> list[Tema]:
+        """Temas stuck at `status` since before `limite` - used to detect a
+        background generation task that died mid-run (e.g. instance
+        restart) instead of ever reaching `'pronto'`/`'erro'` on its own.
+        See `trilha_pessoal_service.reabrir_temas_travados`."""
+        stmt = select(Tema).where(Tema.status == status, Tema.updated_at < limite)
+        return list(self.db.execute(stmt).scalars().all())
 
 
 def get_tema_repository(db: DbSession) -> TemaRepository:
