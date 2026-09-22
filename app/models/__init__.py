@@ -13,6 +13,7 @@ from app.models.tentativa import (
     Tentativa,
     TentativaQuestao,
 )
+from app.models.voto_materia import VotoMateria
 from app.models.xp import XpEvento
 
 __all__ = [
@@ -31,4 +32,5 @@ __all__ = [
     "Mensagem",
     "XpEvento",
     "PerfilUsuario",
+    "VotoMateria",
 ]

@@ -11,9 +11,12 @@ from app.deps import (
     ConversaRepo,
     MateriaRepo,
     ModuloRepo,
+    ProgressoRepo,
     QuestionarioRepo,
     SettingsDep,
     TemaRepo,
+    VotoRepo,
+    XpRepo,
 )
 from app.models.conversa import TIPO_ADMIN, Conversa
 from app.schemas.chat import ChatMensagemInput, ChatRespostaOut, ConversaOut, MensagemOut
@@ -31,6 +34,9 @@ def enviar_mensagem(
     tema_repo: TemaRepo,
     modulo_repo: ModuloRepo,
     questionario_repo: QuestionarioRepo,
+    xp_repo: XpRepo,
+    progresso_repo: ProgressoRepo,
+    voto_repo: VotoRepo,
     ai_provider: AiProviderDep,
     settings: SettingsDep,
 ) -> ChatRespostaOut:
@@ -49,8 +55,12 @@ def enviar_mensagem(
         tema_repo=tema_repo,
         modulo_repo=modulo_repo,
         questionario_repo=questionario_repo,
+        xp_repo=xp_repo,
+        progresso_repo=progresso_repo,
+        voto_repo=voto_repo,
         ai_provider=ai_provider,
         pool_size=settings.QUESTIONARIO_POOL_SIZE,
+        user_id=admin_id,
         conversa_id=conversa.id,
     )
     resposta = agent_service.processar_mensagem(

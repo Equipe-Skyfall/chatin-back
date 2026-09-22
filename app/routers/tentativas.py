@@ -243,7 +243,7 @@ def obter_progresso(
     progresso_repo: ProgressoRepo,
     xp_repo: XpRepo,
 ) -> ProgressoOut:
-    materias = materia_repo.list_all_with_temas_e_modulos()
+    materias = materia_repo.list_minhas_e_globais_with_temas_e_modulos(user_id)
     modulo_ids = [m.id for materia in materias for tema in materia.temas for m in tema.modulos]
     progresso_rows = progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
     xp_por_materia = {m.id: xp_repo.total_por_usuario_e_materia(user_id, m.id) for m in materias}

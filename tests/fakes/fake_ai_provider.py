@@ -36,12 +36,13 @@ class FakeAIProvider(AIProvider):
         self.resposta_agente_fixa: str | None = None
         self.falhar_conversar_com_ferramentas = False
         self.ctx_recebido: FerramentaContexto | None = None
-        self.responder_pergunta_aluno_calls = 0
+        self.conversar_com_agente_aluno_calls = 0
         self.resumir_conversa_calls = 0
         self.conteudos_modulo_recebidos: list[str | None] = []
         self.historicos_recebidos: list[list[MensagemAgente]] = []
-        self.falhar_responder_pergunta_aluno = False
+        self.falhar_conversar_com_agente_aluno = False
         self.falhar_resumir_conversa = False
+        self.resposta_agente_aluno_fixa: str | None = None
 
     def buscar_fontes(
         self, tema_titulo: str, tema_descricao: str | None, direcionamento: str | None = None
@@ -135,17 +136,21 @@ class FakeAIProvider(AIProvider):
             return self.resposta_agente_fixa
         return "Resposta de teste."
 
-    def responder_pergunta_aluno(
+    def conversar_com_agente_aluno(
         self,
-        historico: list[MensagemAgente],
-        pergunta: str,
-        conteudo_modulo: str | None = None,
+        mensagens: list[MensagemAgente],
+        conteudo_modulo: str | None,
+        ctx: FerramentaContexto,
     ) -> str:
-        self.responder_pergunta_aluno_calls += 1
+        self.conversar_com_agente_aluno_calls += 1
         self.conteudos_modulo_recebidos.append(conteudo_modulo)
-        self.historicos_recebidos.append(list(historico))
-        if self.falhar_responder_pergunta_aluno:
-            raise RuntimeError("falha simulada ao responder pergunta do aluno")
+        self.historicos_recebidos.append(list(mensagens))
+        self.ctx_recebido = ctx
+        if self.falhar_conversar_com_agente_aluno:
+            raise RuntimeError("falha simulada na conversa com o agente do aluno")
+        if self.resposta_agente_aluno_fixa is not None:
+            return self.resposta_agente_aluno_fixa
+        pergunta = mensagens[-1].conteudo if mensagens else ""
         return f"Resposta de teste para: {pergunta}"
 
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:

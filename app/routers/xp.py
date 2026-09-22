@@ -13,7 +13,7 @@ router = APIRouter(tags=["xp"])
 @router.get("/xp/meu", response_model=MeuXpOut)
 def meu_xp(user_id: CurrentUserId, xp_repo: XpRepo, materia_repo: MateriaRepo) -> MeuXpOut:
     por_materia = []
-    for materia in materia_repo.list_all():
+    for materia in materia_repo.list_minhas_e_globais(user_id):
         xp = xp_repo.total_por_usuario_e_materia(user_id, materia.id)
         if xp > 0:
             por_materia.append(

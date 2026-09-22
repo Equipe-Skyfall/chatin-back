@@ -31,6 +31,14 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def nova_sessao() -> Session:
+    """A fresh, request-independent `Session` - for code that runs outside
+    the request/response cycle (`BackgroundTasks`), where the request-scoped
+    session from `get_db` is already closed by the time it would run. Caller
+    owns closing it (see `app/services/trilha_pessoal_service.py`)."""
+    return _get_session_factory()()
+
+
 # Defined next to get_db so every repository's own provider function (and
 # deps.py) can depend on a plain `Session` without repeating `Depends(get_db)`.
 DbSession = Annotated[Session, Depends(get_db)]

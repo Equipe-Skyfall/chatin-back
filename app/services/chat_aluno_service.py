@@ -1,8 +1,8 @@
-"""Grounded Q&A chat for regular students - deliberately simpler than the
-admin agent's tool-calling loop (`agent_service`): no tools, no ability to
-look up or change anything. Sees only the current módulo's content (when the
-conversation is scoped to one) plus the most recent messages of its own
-history.
+"""Tool-calling chat for regular students (`agent_tools_aluno.py`): search
+the public curriculum, see own performance, create own trilha. A much
+smaller, non-destructive tool set than the admin agent's, but the same
+loop/session mechanics under the hood (`AIProvider.conversar_com_agente_
+aluno`) - see `app/ai/base.py`.
 """
 
 from datetime import UTC, datetime
@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 
 from app.ai.base import AIProvider
-from app.ai.schemas import MensagemAgente
+from app.ai.schemas import FerramentaContexto, MensagemAgente
 from app.core.exceptions import ConversaOcupadaException
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, Conversa, Mensagem
 from app.repositories.conversa_repository import ConversaRepository
@@ -28,11 +28,14 @@ def enviar_mensagem(
     conversa_repo: ConversaRepository,
     modulo_repo: ModuloRepository,
     ai_provider: AIProvider,
+    ctx: FerramentaContexto,
     janela: int,
 ) -> str:
     """`janela` caps how many of the conversation's most recent messages are
     sent to the model (older ones stay in Postgres, just not in the prompt) -
-    bounds prompt size and cost on long chats."""
+    bounds prompt size and cost on long chats. `ctx` is this student's
+    `FerramentaContexto` (see `routers/chat_aluno.py` for how it's built) -
+    `ctx.conversa_id` must equal `conversa.id`."""
 
     def _salvar(papel: str, conteudo: str) -> None:
         ordem = conversa_repo.proxima_ordem(conversa.id)
@@ -40,11 +43,6 @@ def enviar_mensagem(
             Mensagem(conversa_id=conversa.id, papel=papel, conteudo=conteudo, ordem=ordem)
         )
         conversa_repo.commit()
-
-    # Read the window *before* saving this turn's user message, so it never
-    # includes it - `texto_usuario` is passed to the provider separately.
-    recarregada = conversa_repo.get_with_mensagens(conversa.id)
-    historico = [_mensagem_para_historico(m) for m in recarregada.mensagens[-janela:]]
 
     try:
         _salvar(PAPEL_USUARIO, texto_usuario)
@@ -55,13 +53,16 @@ def enviar_mensagem(
         conversa_repo.rollback()
         raise ConversaOcupadaException() from exc
 
+    recarregada = conversa_repo.get_with_mensagens(conversa.id)
+    historico = [_mensagem_para_historico(m) for m in recarregada.mensagens[-janela:]]
+
     conteudo_modulo = None
     if conversa.modulo_id is not None:
         modulo = modulo_repo.get(conversa.modulo_id)
         if modulo is not None:
             conteudo_modulo = modulo.conteudo
 
-    resposta = ai_provider.responder_pergunta_aluno(historico, texto_usuario, conteudo_modulo)
+    resposta = ai_provider.conversar_com_agente_aluno(historico, conteudo_modulo, ctx)
     _salvar(PAPEL_ASSISTENTE, resposta)
     conversa_repo.tocar(conversa.id)
     conversa_repo.commit()

@@ -9,12 +9,17 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
+from fastapi import BackgroundTasks
+
 if TYPE_CHECKING:
     from app.ai.base import AIProvider
     from app.repositories.materia_repository import MateriaRepository
     from app.repositories.modulo_repository import ModuloRepository
+    from app.repositories.progresso_repository import ProgressoRepository
     from app.repositories.questionario_repository import QuestionarioRepository
     from app.repositories.tema_repository import TemaRepository
+    from app.repositories.voto_repository import VotoRepository
+    from app.repositories.xp_repository import XpRepository
 
 Letra = Literal["A", "B", "C", "D", "E"]
 
@@ -114,20 +119,31 @@ class MensagemAgente:
 
 @dataclass
 class FerramentaContexto:
-    """Per-request context the admin agent's tools need to execute - repos,
-    the AI provider itself (some tools trigger further AI generation, e.g.
-    `criar_tema` kicking off `buscar_fontes`), the questionário pool size, and
-    the id of the `Conversa` this turn belongs to. A provider that keeps its
-    own persistent conversation session (e.g. `AdkProvider`'s ADK
-    `SessionService`) keys that session off `conversa_id`."""
+    """Per-request context an agent's tools need to execute - repos, the AI
+    provider itself (some tools trigger further AI generation, e.g.
+    `criar_tema` kicking off `buscar_fontes`), the questionário pool size,
+    the calling user's id, and the id of the `Conversa` this turn belongs
+    to. A provider that keeps its own persistent conversation session (e.g.
+    `AdkProvider`'s ADK `SessionService`) keys that session off
+    `conversa_id`. Shared by both the admin agent (`agent_tools.py`) and the
+    student agent (`agent_tools_aluno.py`) - `xp_repo`/`progresso_repo`/
+    `voto_repo`/`background_tasks` exist for the latter's tools
+    (`meu_desempenho`, `criar_minha_trilha`) and are simply unused by the
+    admin's; splitting into two context types wasn't worth it for the size
+    of the difference."""
 
     materia_repo: "MateriaRepository"
     tema_repo: "TemaRepository"
     modulo_repo: "ModuloRepository"
     questionario_repo: "QuestionarioRepository"
+    xp_repo: "XpRepository"
+    progresso_repo: "ProgressoRepository"
+    voto_repo: "VotoRepository"
     ai_provider: "AIProvider"
     pool_size: int
+    user_id: str
     conversa_id: uuid.UUID
+    background_tasks: BackgroundTasks | None = None
 
 
 @dataclass(frozen=True)

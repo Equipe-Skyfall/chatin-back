@@ -133,6 +133,14 @@ class ModuloBloqueadoException(AppException):
     detail = "Este módulo ainda está bloqueado."
 
 
+class VotoEmConteudoGlobalException(AppException):
+    status_code = 400
+    detail = (
+        "Não é possível votar no currículo oficial - votos só existem em trilhas criadas "
+        "por alunos."
+    )
+
+
 # --- 401 (auth) ---
 
 

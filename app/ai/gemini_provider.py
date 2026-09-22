@@ -22,11 +22,11 @@ from app.ai.base import AIProvider
 from app.ai.gemini_schemas import PLANO_MODULOS_RESPONSE_SCHEMA, QUESTIONARIO_RESPONSE_SCHEMA
 from app.ai.prompts import (
     AGENTE_ADMIN_SYSTEM_INSTRUCTION,
+    prompt_agente_aluno_system,
     prompt_buscar_fontes,
     prompt_gerar_conteudo_modulo,
     prompt_gerar_questionario,
     prompt_planejar_modulos,
-    prompt_professor_aluno_system,
     prompt_resumir_conversa,
 )
 from app.ai.schemas import (
@@ -333,9 +333,50 @@ class GeminiProvider(AIProvider):
         # the tool dispatcher itself, not just tool declarations.
         from app.services.agent_tools import TOOLS, executar_ferramenta
 
+        return self._loop_com_ferramentas(
+            mensagens, ctx, TOOLS, AGENTE_ADMIN_SYSTEM_INSTRUCTION, executar_ferramenta
+        )
+
+    def conversar_com_agente_aluno(
+        self,
+        mensagens: list[MensagemAgente],
+        conteudo_modulo: str | None,
+        ctx: FerramentaContexto,
+    ) -> str:
+        """Same tool-calling loop as `conversar_com_ferramentas`, just a
+        different (much smaller, non-destructive) tool set and system
+        instruction - see `_loop_com_ferramentas`."""
+        from app.services.agent_tools_aluno import TOOLS as TOOLS_ALUNO
+        from app.services.agent_tools_aluno import executar_ferramenta_aluno
+
+        return self._loop_com_ferramentas(
+            mensagens,
+            ctx,
+            TOOLS_ALUNO,
+            prompt_agente_aluno_system(conteudo_modulo),
+            executar_ferramenta_aluno,
+        )
+
+    def _loop_com_ferramentas(
+        self,
+        mensagens: list[MensagemAgente],
+        ctx: FerramentaContexto,
+        ferramentas: list[FerramentaDeclaracao],
+        instrucao_base: str,
+        executar: Any,
+    ) -> str:
+        """Shared by `conversar_com_ferramentas` (admin) and
+        `conversar_com_agente_aluno` (student) - one `_conversar_um_turno`
+        call per round trip, dispatching any requested tool calls via
+        `executar` and feeding the result back in, until a final text reply
+        comes back or `AGENTE_MAX_ITERACOES` round trips are used up. This is
+        the loop that used to live in `app/services/agent_service.py` - it
+        moved here because `AIProvider.conversar_com_ferramentas` now owns
+        running the whole loop (so `AdkProvider` can hand it off to the ADK
+        `Runner` instead), not just one round trip."""
         historico = list(mensagens)
         for _ in range(self._settings.AGENTE_MAX_ITERACOES):
-            resposta = self._conversar_um_turno(historico, TOOLS)
+            resposta = self._conversar_um_turno(historico, ferramentas, instrucao_base)
 
             if not resposta.chamadas_ferramentas:
                 return resposta.texto or ""
@@ -348,7 +389,7 @@ class GeminiProvider(AIProvider):
                 )
             )
             for chamada in resposta.chamadas_ferramentas:
-                resultado = executar_ferramenta(chamada.nome, chamada.argumentos, ctx)
+                resultado = executar(chamada.nome, chamada.argumentos, ctx)
                 historico.append(
                     MensagemAgente(
                         papel="tool",
@@ -362,7 +403,10 @@ class GeminiProvider(AIProvider):
 
     @_retry_agente
     def _conversar_um_turno(
-        self, mensagens: list[MensagemAgente], ferramentas: list[FerramentaDeclaracao]
+        self,
+        mensagens: list[MensagemAgente],
+        ferramentas: list[FerramentaDeclaracao],
+        instrucao_base: str,
     ) -> RespostaAgente:
         tool = types.Tool(
             function_declarations=[
@@ -379,7 +423,7 @@ class GeminiProvider(AIProvider):
         # consistent with the server replaying the same bad cached completion on
         # a byte-identical retry rather than actually resampling. Varying the
         # instruction slightly per call forces a fresh cache key each attempt.
-        instrucao = f"{AGENTE_ADMIN_SYSTEM_INSTRUCTION}\n\n<!-- {uuid.uuid4()} -->"
+        instrucao = f"{instrucao_base}\n\n<!-- {uuid.uuid4()} -->"
         try:
             response = self._client.models.generate_content(
                 model=self._settings.GEMINI_MODEL_AGENTE,
@@ -456,33 +500,6 @@ class GeminiProvider(AIProvider):
             texto="\n".join(texto_partes) if texto_partes else None,
             chamadas_ferramentas=chamadas,
         )
-
-    @_retry_transient
-    def responder_pergunta_aluno(
-        self,
-        historico: list[MensagemAgente],
-        pergunta: str,
-        conteudo_modulo: str | None = None,
-    ) -> str:
-        contents = [self._para_content(m) for m in historico]
-        contents.append(self._para_content(MensagemAgente(papel="user", conteudo=pergunta)))
-        try:
-            response = self._client.models.generate_content(
-                model=self._settings.GEMINI_MODEL_PROFESSOR,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=prompt_professor_aluno_system(conteudo_modulo)
-                ),
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise ProvedorIAIndisponivelException(
-                f"Falha ao responder pergunta do aluno: {exc}"
-            ) from exc
-
-        texto = getattr(response, "text", None)
-        if not texto:
-            raise ProvedorIAIndisponivelException("O provedor de IA retornou uma resposta vazia.")
-        return texto
 
     @_retry_transient
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:

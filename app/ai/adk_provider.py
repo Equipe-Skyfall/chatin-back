@@ -26,9 +26,15 @@ internally (capped via `RunConfig(max_llm_calls=...)`), which is what makes
 `AIProvider.conversar_com_ferramentas` return one final string instead of one
 round trip at a time.
 
-The remaining two `AIProvider` methods (`responder_pergunta_aluno`/
-`resumir_conversa`, the student chat) still delegate, by composition, to an
-internal `GeminiProvider` instance - migrating them to the same persistent
+`conversar_com_agente_aluno` (the student agent, `app/services/
+agent_tools_aluno.py`) runs the same way, on the same `Runner`/
+`DatabaseSessionService` - conversas are globally unique ids regardless of
+`tipo`, so there's no collision reusing the one session service for both
+audiences.
+
+The remaining `AIProvider` method (`resumir_conversa`, the student chat's
+summary generation) still delegates, by composition, to an internal
+`GeminiProvider` instance - migrating it to the same persistent
 `SessionService` is a follow-up, not required by this phase. This keeps
 `AI_PROVIDER=adk` fully functional in production from Fase 1 onward, with
 `AI_PROVIDER=gemini` remaining available as an instant rollback.
@@ -50,11 +56,12 @@ from pydantic import ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.ai.adk_schemas import PlanoModulosSchema, QuestionarioSchema
-from app.ai.adk_tools import construir_tools
+from app.ai.adk_tools import construir_tools, construir_tools_aluno
 from app.ai.base import AIProvider
 from app.ai.gemini_provider import GeminiProvider
 from app.ai.prompts import (
     AGENTE_ADMIN_SYSTEM_INSTRUCTION,
+    prompt_agente_aluno_system,
     prompt_buscar_fontes,
     prompt_gerar_conteudo_modulo,
     prompt_gerar_questionario,
@@ -346,21 +353,46 @@ class AdkProvider(AIProvider):
     def conversar_com_ferramentas(
         self, mensagens: list[MensagemAgente], ctx: FerramentaContexto
     ) -> str:
-        """Runs the admin agent's full tool-calling loop the native ADK way:
-        a fresh `LlmAgent` (tools closed over this call's `ctx`, see
-        `adk_tools.construir_tools`) handed to a `Runner` backed by the
-        persistent `DatabaseSessionService`, keyed by `ctx.conversa_id` - the
-        `Runner` auto-invokes tools and manages the whole model<->tool loop
-        internally, capped by `RunConfig(max_llm_calls=...)`."""
-        pergunta = mensagens[-1].conteudo or "" if mensagens else ""
-        session_id = str(ctx.conversa_id)
-
+        """Runs the admin agent's full tool-calling loop the native ADK way -
+        see `_executar_agente`."""
         agente = LlmAgent(
             name="agente_admin_agent",
             model=self._settings.GEMINI_MODEL_AGENTE,
             instruction=AGENTE_ADMIN_SYSTEM_INSTRUCTION,
             tools=construir_tools(ctx),
         )
+        return self._executar_agente(mensagens, ctx.conversa_id, agente)
+
+    def conversar_com_agente_aluno(
+        self,
+        mensagens: list[MensagemAgente],
+        conteudo_modulo: str | None,
+        ctx: FerramentaContexto,
+    ) -> str:
+        """Same as `conversar_com_ferramentas`, the student agent's much
+        smaller tool set (`adk_tools.construir_tools_aluno`) and system
+        instruction - see `_executar_agente`."""
+        agente = LlmAgent(
+            name="agente_aluno_agent",
+            model=self._settings.GEMINI_MODEL_AGENTE,
+            instruction=prompt_agente_aluno_system(conteudo_modulo),
+            tools=construir_tools_aluno(ctx),
+        )
+        return self._executar_agente(mensagens, ctx.conversa_id, agente)
+
+    def _executar_agente(
+        self, mensagens: list[MensagemAgente], conversa_id: uuid.UUID, agente: LlmAgent
+    ) -> str:
+        """A fresh `LlmAgent` (tools closed over that call's `ctx`, see
+        `adk_tools.py`) handed to a `Runner` backed by the persistent
+        `DatabaseSessionService`, keyed by `conversa_id` - the `Runner`
+        auto-invokes tools and manages the whole model<->tool loop
+        internally, capped by `RunConfig(max_llm_calls=...)`. Shared by the
+        admin and student agents - they differ only in which `LlmAgent`
+        (tools + instruction) the caller built."""
+        pergunta = mensagens[-1].conteudo or "" if mensagens else ""
+        session_id = str(conversa_id)
+
         runner = Runner(
             app_name=_APP_NAME, agent=agente, session_service=self._agente_session_service
         )
@@ -455,14 +487,6 @@ class AdkProvider(AIProvider):
             chamadas_ferramentas=chamadas_ferramentas,
             created_at=datetime.fromtimestamp(event.timestamp, tz=UTC),
         )
-
-    def responder_pergunta_aluno(
-        self,
-        historico: list[MensagemAgente],
-        pergunta: str,
-        conteudo_modulo: str | None = None,
-    ) -> str:
-        return self._gemini.responder_pergunta_aluno(historico, pergunta, conteudo_modulo)
 
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         return self._gemini.resumir_conversa(mensagens)

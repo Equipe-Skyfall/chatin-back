@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -20,4 +21,23 @@ class MateriaOut(BaseModel):
     id: UUID
     nome: str
     descricao: str | None
+    owner_user_id: str | None = Field(
+        None,
+        description=(
+            "None = currículo oficial (curado por admins). Caso contrário, é uma trilha "
+            "criada por um aluno - visível e votável por todos."
+        ),
+    )
+    votos: int = Field(
+        0, description="Placar líquido de votos (soma de +1/-1) - sempre 0 para currículo oficial."
+    )
     created_at: datetime
+
+
+class VotoInput(BaseModel):
+    valor: Literal[1, -1]
+
+
+class VotoOut(BaseModel):
+    materia_id: UUID
+    votos: int
