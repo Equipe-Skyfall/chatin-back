@@ -16,6 +16,7 @@ from app.ai.schemas import (
     MensagemAgente,
     PlanoModulos,
     QuestionarioGerado,
+    ResumoEstudoGerado,
 )
 
 
@@ -102,3 +103,19 @@ class AIProvider(ABC):
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         """Summarizes a student/teacher conversation into a short digest for
         the student's conversation-summary history."""
+
+    @abstractmethod
+    def gerar_resumo_estudo(
+        self,
+        historico: list[MensagemAgente],
+        materia_nome: str | None,
+        tema_titulo: str | None,
+        modulo_titulo: str,
+        conteudo_modulo: str | None,
+    ) -> ResumoEstudoGerado:
+        """Builds a student's study summary for one módulo from the módulo's
+        own teaching content (`conteudo_modulo`) plus the student's
+        conversations about it (`historico`), filled into the fixed template
+        (visão geral, conceitos-chave, pontos importantes, exemplos, dúvidas
+        do aluno, revisão rápida, fontes). Unlike `resumir_conversa`, this is
+        an addressable Biblioteca artifact, not a per-conversation digest."""

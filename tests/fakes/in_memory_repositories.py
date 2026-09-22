@@ -12,6 +12,7 @@ from app.models.modulo import Modulo
 from app.models.progresso import STATUS_DISPONIVEL, ProgressoUsuario
 from app.models.questao import Questao
 from app.models.questionario import Questionario
+from app.models.resumo_estudo import ResumoEstudo
 from app.models.tentativa import (
     STATUS_EM_ANDAMENTO,
     RespostaTentativa,
@@ -38,6 +39,11 @@ class InMemoryModuloRepository:
         self._modulos[modulo.id] = modulo
 
     def get(self, modulo_id: uuid.UUID) -> Modulo | None:
+        return self._modulos.get(modulo_id)
+
+    def get_with_tema_e_materia(self, modulo_id: uuid.UUID) -> Modulo | None:
+        # The fake stores módulos with `.tema`/`.tema.materia` already attached
+        # by the test, so there's nothing to eager-load here.
         return self._modulos.get(modulo_id)
 
     def atualizar_status(self, modulo, status: str) -> None:
@@ -331,3 +337,42 @@ class InMemoryXpRepository:
             for e in self.eventos
             if e.user_id == user_id and e.materia_id == materia_id
         )
+
+
+class InMemoryResumoEstudoRepository:
+    """Backs `resumo_estudo_service` tests - enforces the same
+    one-per-(user, módulo) invariant as the DB's unique constraint, so the
+    upsert path can be asserted without a database."""
+
+    def __init__(self):
+        self.db = _FakeSession()
+        self.resumos: dict[uuid.UUID, ResumoEstudo] = {}
+
+    def get(self, entity_id: uuid.UUID) -> ResumoEstudo | None:
+        return self.resumos.get(entity_id)
+
+    def get_by_user_and_modulo(
+        self, user_id: str, modulo_id: uuid.UUID
+    ) -> ResumoEstudo | None:
+        for resumo in self.resumos.values():
+            if resumo.user_id == user_id and resumo.modulo_id == modulo_id:
+                return resumo
+        return None
+
+    def list_by_user(
+        self, user_id: str, limit: int, offset: int, materia_id: uuid.UUID | None = None
+    ) -> list[ResumoEstudo]:
+        itens = [r for r in self.resumos.values() if r.user_id == user_id]
+        return itens[offset : offset + limit]
+
+    def add(self, entity: ResumoEstudo) -> ResumoEstudo:
+        if getattr(entity, "id", None) is None:
+            entity.id = uuid.uuid4()
+        self.resumos[entity.id] = entity
+        return entity
+
+    def commit(self) -> None:
+        pass
+
+    def refresh(self, entity: ResumoEstudo) -> None:
+        pass

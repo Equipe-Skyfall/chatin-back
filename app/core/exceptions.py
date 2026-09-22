@@ -64,6 +64,11 @@ class ConversaNaoEncontradaException(RecursoNaoEncontradoException):
         super().__init__(f"Conversa '{conversa_id}' não encontrada.")
 
 
+class ResumoEstudoNaoEncontradoException(RecursoNaoEncontradoException):
+    def __init__(self, resumo_id: UUID):
+        super().__init__(f"Resumo de estudo '{resumo_id}' não encontrado.")
+
+
 # --- 400s / 422s (bad request / invalid state) ---
 
 
@@ -75,6 +80,11 @@ class TemaNaoProntoException(AppException):
 class ConteudoIndisponivelException(AppException):
     status_code = 400
     detail = "Conteúdo ainda não disponível para este recurso."
+
+
+class ResumoEstudoSemModuloException(AppException):
+    status_code = 400
+    detail = "Só é possível gerar um resumo de estudo para conversas vinculadas a um módulo."
 
 
 class RespostaInvalidaException(AppException):

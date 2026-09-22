@@ -49,3 +49,45 @@ PLANO_MODULOS_RESPONSE_SCHEMA: dict[str, Any] = {
         "required": ["titulo", "descricao"],
     },
 }
+
+RESUMO_ESTUDO_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "visao_geral": {"type": "STRING"},
+        "conceitos_chave": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "termo": {"type": "STRING"},
+                    "explicacao": {"type": "STRING"},
+                },
+                "required": ["termo", "explicacao"],
+            },
+        },
+        "pontos_importantes": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "exemplos": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "duvidas_do_aluno": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "pergunta": {"type": "STRING"},
+                    "resposta": {"type": "STRING"},
+                },
+                "required": ["pergunta", "resposta"],
+            },
+        },
+        "revisao_rapida": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "fontes": {"type": "ARRAY", "items": {"type": "STRING"}},
+    },
+    "required": [
+        "visao_geral",
+        "conceitos_chave",
+        "pontos_importantes",
+        "exemplos",
+        "duvidas_do_aluno",
+        "revisao_rapida",
+        "fontes",
+    ],
+}

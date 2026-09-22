@@ -107,6 +107,33 @@ implementados e verificados ao vivo contra o banco real para tudo marcado ✅.
   `POST /temas/{tema_id}/questionarios/regenerar` (em lote, todos os módulos
   do tema) - disponíveis via REST, agente admin e painel admin.
 
+## 13. Resumo de estudo + Biblioteca + PDF ✅
+- Um resumo de estudo por **módulo** por aluno: `resumos_estudo` (migration
+  `0013`), com `UniqueConstraint (user_id, modulo_id)` - regenerar faz upsert
+  no mesmo registro, nunca duplica ("um resumo por módulo", a Biblioteca como
+  um livro dos resumos).
+- `POST /resumos {conversa_id}` gera/regera a partir do **conteúdo do módulo**
+  (contexto) + **todas as conversas do aluno naquele módulo** (não só a que
+  disparou - ver `resumo_estudo_service._historico`, com o mesmo cap de chars
+  do `questionario_personalizado_service`). Rejeita conversa sem `modulo_id`
+  (400) e módulo sem conteúdo (400).
+- Template estruturado (`conteudo` JSONB): visão geral, conceitos-chave,
+  pontos importantes, exemplos, dúvidas do aluno, revisão rápida e fontes.
+  Novo método `AIProvider.gerar_resumo_estudo` nos dois providers (Gemini com
+  `response_schema`, ADK com `output_schema`).
+- `GET /resumos?limit=&offset=&materia_id=` lista **só os resumos do próprio
+  usuário do JWT** (`CurrentUserId`), paginado; `GET /resumos/{id}` abre o
+  detalhe; `GET /resumos/{id}/pdf` devolve o PDF.
+- PDF gerado **on-demand** com `fpdf2` (pure-Python, sem deps de sistema) a
+  partir do template salvo - nenhum byte de PDF é armazenado. Fontes core do
+  fpdf são latin-1, então `resumo_pdf_service._sanitizar` dobra travessões,
+  aspas curvas e bullets antes de escrever.
+- Frontend: `/biblioteca` deixa de ser `EmptyPage` e renderiza os resumos
+  agrupados por matéria -> tema -> módulo, com viewer e "Baixar PDF"; botão
+  "Gerar resumo de estudo" no chat (só em conversa vinculada a módulo). O
+  proxy `/api/study/[...path]` ganhou `resumos` na allowlist e passthrough
+  binário para `application/pdf`.
+
 ---
 
 ## Performance - revisar antes de escalar (2026-09-12)
