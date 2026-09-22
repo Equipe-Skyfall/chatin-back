@@ -120,17 +120,23 @@ def _criar_minha_trilha(args: dict[str, Any], ctx: FerramentaContexto) -> str:
 
     if ctx.background_tasks is not None:
         ctx.background_tasks.add_task(
-            trilha_pessoal_service.completar_criacao_tema, tema.id, ctx.ai_provider
+            trilha_pessoal_service.completar_criacao_trilha_pessoal,
+            tema.id,
+            ctx.pool_size,
+            ctx.ai_provider,
         )
         aviso = (
-            "Estou gerando o conteúdo agora - isso leva um ou dois minutos; volte a esta "
-            "conversa daqui a pouco para conferir."
+            "Estou gerando o conteúdo e os módulos agora - isso leva alguns minutos; volte a "
+            "esta conversa daqui a pouco, ou consulte GET /temas/{tema_id}/status, para "
+            "conferir."
         )
     else:
         # No BackgroundTasks handed in (ctx built outside a real HTTP
         # request, e.g. a test) - do it inline rather than silently drop it.
-        trilha_pessoal_service.completar_criacao_tema(tema.id, ctx.ai_provider)
-        aviso = "Conteúdo gerado."
+        trilha_pessoal_service.completar_criacao_trilha_pessoal(
+            tema.id, ctx.pool_size, ctx.ai_provider
+        )
+        aviso = "Conteúdo e módulos gerados."
 
     return (
         f"Criei a trilha '{materia.nome}' com o tema '{tema.titulo}' "

@@ -130,6 +130,7 @@ def listar_modulos(
 ) -> list[Modulo]:
     if tema_repo.get(tema_id) is None:
         raise TemaNaoEncontradoException(tema_id)
+    trilha_pessoal_service.reabrir_modulos_travados(modulo_repo)
     return modulo_repo.list_by_tema(tema_id)
 
 

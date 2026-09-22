@@ -12,13 +12,21 @@ from app.deps import (
     AiProviderDep,
     CurrentUserId,
     MateriaRepo,
+    ModuloRepo,
     ProgressoRepo,
     TemaRepo,
     TokenPayloadDep,
 )
 from app.models.materia import Materia
 from app.models.tema import STATUS_PRONTO, Tema
-from app.schemas.tema import ModuloResumidoOut, TemaCreate, TemaDetailOut, TemaOut, TemaUpdate
+from app.schemas.tema import (
+    ModuloResumidoOut,
+    TemaCreate,
+    TemaDetailOut,
+    TemaOut,
+    TemaStatusOut,
+    TemaUpdate,
+)
 from app.schemas.trilha import TrilhaOut
 from app.services import curriculo_service, trilha_pessoal_service
 from app.services.progresso_service import estado_tema, modulos_do_tema_com_estado, montar_trilha
@@ -143,6 +151,26 @@ def obter_trilha(
     modulo_ids = [m.id for materia in materias for tema in materia.temas for m in tema.modulos]
     progresso_rows = progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
     return montar_trilha(materias, progresso_rows)
+
+
+@router.get("/temas/{tema_id}/status", response_model=TemaStatusOut)
+def obter_status_tema(
+    tema_id: UUID, _user_id: CurrentUserId, tema_repo: TemaRepo, modulo_repo: ModuloRepo
+) -> TemaStatusOut:
+    """The one endpoint to poll after `criar_minha_trilha` (or `POST
+    .../modulos/gerar-automaticamente`) returns - unlike `GET /temas/{id}`,
+    this works (and is the point) while generation is still in progress,
+    not just once everything is `'pronto'`. See
+    `trilha_pessoal_service.calcular_status_tema`."""
+    trilha_pessoal_service.reabrir_temas_travados(tema_repo)
+    trilha_pessoal_service.reabrir_modulos_travados(modulo_repo)
+
+    tema = tema_repo.get(tema_id)
+    if tema is None:
+        raise TemaNaoEncontradoException(tema_id)
+    modulos = modulo_repo.list_by_tema(tema_id)
+    status = trilha_pessoal_service.calcular_status_tema(tema, modulos)
+    return TemaStatusOut(tema_id=tema.id, **status)
 
 
 @router.get("/temas/{tema_id}", response_model=TemaDetailOut)

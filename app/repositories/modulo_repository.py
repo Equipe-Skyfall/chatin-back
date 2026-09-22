@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import Depends
@@ -14,6 +15,13 @@ class ModuloRepository(SqlAlchemyRepository[Modulo]):
 
     def list_by_tema(self, tema_id: uuid.UUID) -> list[Modulo]:
         stmt = select(Modulo).where(Modulo.tema_id == tema_id).order_by(Modulo.ordem)
+        return list(self.db.execute(stmt).scalars().all())
+
+    def list_travados_desde(self, status: str, limite: datetime) -> list[Modulo]:
+        """Same purpose as `TemaRepository.list_travados_desde` - a módulo
+        stuck at `status` since before `limite` means the background task
+        generating it (see `trilha_pessoal_service`) died mid-run."""
+        stmt = select(Modulo).where(Modulo.status == status, Modulo.updated_at < limite)
         return list(self.db.execute(stmt).scalars().all())
 
     def atualizar_status(self, modulo: Modulo, status: str) -> None:

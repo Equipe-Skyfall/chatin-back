@@ -45,6 +45,22 @@ class ModuloResumidoOut(BaseModel):
     estado: EstadoProgresso
 
 
+class TemaStatusOut(BaseModel):
+    """The one thing to poll after `criar_minha_trilha`/`gerar-
+    automaticamente` returns - `tema.status` alone only ever meant "sources
+    found, ready to receive módulos", not "fully generated" (see
+    `trilha_pessoal_service.calcular_status_tema`). `pronto_para_estudar`
+    is the real "nothing left in flight" answer."""
+
+    tema_id: UUID
+    tema_status: str
+    modulos_total: int
+    modulos_prontos: int
+    modulos_com_erro: int
+    modulos_gerando: int
+    pronto_para_estudar: bool
+
+
 class TemaDetailOut(BaseModel):
     """Tema is a pure grouping node - no content of its own; teaching material
     lives on each módulo (see `ModuloDetailOut`)."""

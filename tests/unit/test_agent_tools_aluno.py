@@ -246,7 +246,7 @@ def test_criar_minha_trilha_cria_materia_e_tema_e_agenda_background_task():
     # scheduled, not run inline - no AI/DB work happened synchronously
     assert len(background_tasks.tarefas) == 1
     func, args, _ = background_tasks.tarefas[0]
-    assert func.__name__ == "completar_criacao_tema"
+    assert func.__name__ == "completar_criacao_trilha_pessoal"
     assert args[0] == tema.id
 
 
