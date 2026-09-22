@@ -13,15 +13,18 @@ class XpRepository(SqlAlchemyRepository[XpEvento]):
     model = XpEvento
 
     def total_por_usuario(self, user_id: str) -> int:
-        stmt = select(func.coalesce(func.sum(XpEvento.quantidade), 0)).where(
-            XpEvento.user_id == user_id
-        )
+        """Sum of every event, floored at 0 - a failing attempt can record a
+        negative penalty event (see `MOTIVO_REPROVACAO_FINAL`), but a student's
+        XP total is never shown as negative."""
+        stmt = select(
+            func.greatest(func.coalesce(func.sum(XpEvento.quantidade), 0), 0)
+        ).where(XpEvento.user_id == user_id)
         return self.db.execute(stmt).scalar_one()
 
     def total_por_usuario_e_materia(self, user_id: str, materia_id: uuid.UUID) -> int:
-        stmt = select(func.coalesce(func.sum(XpEvento.quantidade), 0)).where(
-            XpEvento.user_id == user_id, XpEvento.materia_id == materia_id
-        )
+        stmt = select(
+            func.greatest(func.coalesce(func.sum(XpEvento.quantidade), 0), 0)
+        ).where(XpEvento.user_id == user_id, XpEvento.materia_id == materia_id)
         return self.db.execute(stmt).scalar_one()
 
     def ranking_global(self, limit: int = 20) -> list[tuple[str, int]]:
@@ -31,7 +34,7 @@ class XpRepository(SqlAlchemyRepository[XpEvento]):
             .order_by(func.sum(XpEvento.quantidade).desc())
             .limit(limit)
         )
-        return [(row.user_id, row.total) for row in self.db.execute(stmt)]
+        return [(row.user_id, max(row.total, 0)) for row in self.db.execute(stmt)]
 
     def ranking_por_materia(self, materia_id: uuid.UUID, limit: int = 20) -> list[tuple[str, int]]:
         stmt = (
@@ -41,7 +44,7 @@ class XpRepository(SqlAlchemyRepository[XpEvento]):
             .order_by(func.sum(XpEvento.quantidade).desc())
             .limit(limit)
         )
-        return [(row.user_id, row.total) for row in self.db.execute(stmt)]
+        return [(row.user_id, max(row.total, 0)) for row in self.db.execute(stmt)]
 
 
 def get_xp_repository(db: DbSession) -> XpRepository:

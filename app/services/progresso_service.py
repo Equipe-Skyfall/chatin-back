@@ -213,11 +213,12 @@ def atualizar_progresso(
     materia_id: uuid.UUID,
     pontuacao: float,
     limite_aprovacao: float,
+    penalidade_reprovacao: int,
     xp_repo: XpRepository,
 ) -> ProgressoUsuario:
-    """Also grants XP for this attempt (see `xp_service`) - this is the one
-    place a módulo's completion/retake is already detected, so XP-granting
-    lives here rather than being re-derived elsewhere."""
+    """Also applies the XP rules for this attempt (see `xp_service`) - this is
+    the one place a módulo's completion/retake is already detected, so
+    XP-granting/penalty lives here rather than being re-derived elsewhere."""
     progresso = progresso_repo.get_or_create(user_id, modulo_id)
     era_primeira_tentativa = progresso.tentativas_count == 0
     melhor_pontuacao_anterior = (
@@ -231,10 +232,9 @@ def atualizar_progresso(
         progresso.status = STATUS_CONCLUIDO
     progresso_repo.add(progresso)
 
-    # Every attempt after the first only earns XP for beating the previous
-    # best - regardless of whether that previous attempt had already passed,
-    # since the tiered first-attempt reward (see `xp_service`) already covers
-    # pass-or-fail on attempt #1.
+    # Failing (first or retake) costs a flat penalty instead of earning
+    # anything; passing keeps the tiered first-attempt reward and, on a
+    # retake, only the improvement over the previous best (see `xp_service`).
     melhoria = 0.0 if era_primeira_tentativa else max(0.0, pontuacao - melhor_pontuacao_anterior)
     xp_service.registrar_xp_por_tentativa(
         user_id,
@@ -242,6 +242,7 @@ def atualizar_progresso(
         modulo_id,
         pontuacao,
         limite_aprovacao,
+        penalidade_reprovacao,
         era_primeira_tentativa,
         melhoria,
         xp_repo,

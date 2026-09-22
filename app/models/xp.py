@@ -9,7 +9,8 @@ from app.models._mixins import CreatedAtMixin, UUIDPrimaryKeyMixin
 
 MOTIVO_PRIMEIRA_TENTATIVA = "primeira_tentativa"
 MOTIVO_MELHORIA_NOTA = "melhoria_de_nota"
-MOTIVOS_VALIDOS = (MOTIVO_PRIMEIRA_TENTATIVA, MOTIVO_MELHORIA_NOTA)
+MOTIVO_REPROVACAO_FINAL = "reprovacao_final"
+MOTIVOS_VALIDOS = (MOTIVO_PRIMEIRA_TENTATIVA, MOTIVO_MELHORIA_NOTA, MOTIVO_REPROVACAO_FINAL)
 
 
 class XpEvento(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):

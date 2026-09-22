@@ -121,7 +121,7 @@ def test_montar_trilha_segundo_tema_libera_quando_primeiro_concluido():
     assert temas_out[tema_2.id].estado == "disponivel"
 
 
-def test_atualizar_progresso_primeira_tentativa_cria_registro():
+def test_atualizar_progresso_primeira_tentativa_reprovada_perde_xp():
     from tests.fakes.in_memory_repositories import InMemoryProgressoRepository, InMemoryXpRepository
 
     repo = InMemoryProgressoRepository()
@@ -129,13 +129,21 @@ def test_atualizar_progresso_primeira_tentativa_cria_registro():
     user_id, modulo_id, materia_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
     progresso = progresso_service.atualizar_progresso(
-        repo, user_id, modulo_id, materia_id, 40.0, limite_aprovacao=60.0, xp_repo=xp_repo
+        repo,
+        user_id,
+        modulo_id,
+        materia_id,
+        40.0,
+        limite_aprovacao=75.0,
+        penalidade_reprovacao=20,
+        xp_repo=xp_repo,
     )
 
     assert progresso.tentativas_count == 1
     assert float(progresso.melhor_pontuacao) == 40.0
     assert progresso.status == STATUS_DISPONIVEL
-    assert xp_repo.total_por_usuario(user_id) == 20  # first attempt, failing tier
+    # Reprovou: não ganha XP nenhum, só o desconto - e o total tem piso 0.
+    assert xp_repo.total_por_usuario(user_id) == 0
 
 
 def test_atualizar_progresso_aprova_acima_do_limite():
@@ -146,7 +154,14 @@ def test_atualizar_progresso_aprova_acima_do_limite():
     user_id, modulo_id, materia_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
     progresso = progresso_service.atualizar_progresso(
-        repo, user_id, modulo_id, materia_id, 80.0, limite_aprovacao=60.0, xp_repo=xp_repo
+        repo,
+        user_id,
+        modulo_id,
+        materia_id,
+        80.0,
+        limite_aprovacao=75.0,
+        penalidade_reprovacao=20,
+        xp_repo=xp_repo,
     )
 
     assert progresso.status == STATUS_CONCLUIDO
@@ -161,16 +176,62 @@ def test_atualizar_progresso_melhor_pontuacao_nunca_diminui():
     user_id, modulo_id, materia_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
     progresso_service.atualizar_progresso(
-        repo, user_id, modulo_id, materia_id, 80.0, limite_aprovacao=60.0, xp_repo=xp_repo
+        repo,
+        user_id,
+        modulo_id,
+        materia_id,
+        80.0,
+        limite_aprovacao=75.0,
+        penalidade_reprovacao=20,
+        xp_repo=xp_repo,
     )
     progresso = progresso_service.atualizar_progresso(
-        repo, user_id, modulo_id, materia_id, 50.0, limite_aprovacao=60.0, xp_repo=xp_repo
+        repo,
+        user_id,
+        modulo_id,
+        materia_id,
+        50.0,
+        limite_aprovacao=75.0,
+        penalidade_reprovacao=20,
+        xp_repo=xp_repo,
     )
 
     assert float(progresso.melhor_pontuacao) == 80.0
     assert progresso.tentativas_count == 2
-    # the second (worse) attempt earns no additional XP - only the first one did
-    assert xp_repo.total_por_usuario(user_id) == 100
+    # A retake pior não ganha XP - e, por ser reprovada, desconta 20 dos 100.
+    assert xp_repo.total_por_usuario(user_id) == 80
+
+
+def test_atualizar_progresso_retentativa_reprovada_perde_xp():
+    from tests.fakes.in_memory_repositories import InMemoryProgressoRepository, InMemoryXpRepository
+
+    repo = InMemoryProgressoRepository()
+    xp_repo = InMemoryXpRepository()
+    user_id, modulo_id, materia_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+    progresso_service.atualizar_progresso(
+        repo,
+        user_id,
+        modulo_id,
+        materia_id,
+        90.0,
+        limite_aprovacao=75.0,
+        penalidade_reprovacao=30,
+        xp_repo=xp_repo,
+    )
+    progresso_service.atualizar_progresso(
+        repo,
+        user_id,
+        modulo_id,
+        materia_id,
+        50.0,
+        limite_aprovacao=75.0,
+        penalidade_reprovacao=30,
+        xp_repo=xp_repo,
+    )
+
+    # 100 do primeiro acerto (faixa "bom") menos os 30 da reprovação
+    assert xp_repo.total_por_usuario(user_id) == 70
 
 
 def test_atualizar_progresso_retentativa_com_melhoria_ganha_xp():
@@ -181,12 +242,26 @@ def test_atualizar_progresso_retentativa_com_melhoria_ganha_xp():
     user_id, modulo_id, materia_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
     progresso_service.atualizar_progresso(
-        repo, user_id, modulo_id, materia_id, 60.0, limite_aprovacao=60.0, xp_repo=xp_repo
+        repo,
+        user_id,
+        modulo_id,
+        materia_id,
+        80.0,
+        limite_aprovacao=75.0,
+        penalidade_reprovacao=20,
+        xp_repo=xp_repo,
     )
     xp_apos_primeira = xp_repo.total_por_usuario(user_id)
     progresso_service.atualizar_progresso(
-        repo, user_id, modulo_id, materia_id, 90.0, limite_aprovacao=60.0, xp_repo=xp_repo
+        repo,
+        user_id,
+        modulo_id,
+        materia_id,
+        90.0,
+        limite_aprovacao=75.0,
+        penalidade_reprovacao=20,
+        xp_repo=xp_repo,
     )
 
-    # retake that beats the previous best earns the improvement as bonus XP
-    assert xp_repo.total_por_usuario(user_id) == xp_apos_primeira + 30
+    # retake aprovada que bate o recorde ganha só a melhoria (90 - 80 = 10)
+    assert xp_repo.total_por_usuario(user_id) == xp_apos_primeira + 10

@@ -4,25 +4,35 @@ elsewhere. XP is per-matéria as well as global (see `XpRepository`), so every
 event is tagged with the módulo's matéria.
 
 Rules:
-- The student's very FIRST attempt at a módulo - pass or fail - earns a
-  flat, tiered amount based on how well they did on it. This fires exactly
-  once per módulo per student, never again even on a later retake:
-    below the approval threshold  -> XP_REPROVADO  (20)
-    at the threshold up to 79%    -> XP_APROVADO   (80)
-    80% up to 99%                 -> XP_BOM        (100)
-    100%                          -> XP_PERFEITO   (200)
-- Every attempt AFTER the first (a genuine retake) only earns XP if it beats
-  the student's previous best score, and only for the improvement in points -
-  this is what stops retake-grinding from being free XP forever.
+- Failing the módulo's conclusion questionário (score below the approval
+  threshold) earns NO XP - it costs a flat penalty instead. The old
+  `XP_REPROVADO` "reward for failing" no longer exists: a failing attempt
+  records a negative `MOTIVO_REPROVACAO_FINAL` event of `-penalidade`, whose
+  value is admin-configurable (see `ConfiguracaoSistema`). Applies on every
+  failing attempt, first or retake - the total is clamped at 0 by
+  `XpRepository`.
+- The student's very FIRST attempt that PASSES earns a flat, tiered amount
+  based on how well they did. This fires exactly once per módulo per student,
+  never again even on a later retake:
+    below 80%     -> XP_APROVADO  (80)
+    80% up to 99% -> XP_BOM       (100)
+    100%          -> XP_PERFEITO  (200)
+- Every attempt AFTER the first that beats the student's previous best score
+  earns only the improvement in points - this is what stops retake-grinding
+  from being free XP forever.
 """
 
 import uuid
 from dataclasses import dataclass
 
-from app.models.xp import MOTIVO_MELHORIA_NOTA, MOTIVO_PRIMEIRA_TENTATIVA, XpEvento
+from app.models.xp import (
+    MOTIVO_MELHORIA_NOTA,
+    MOTIVO_PRIMEIRA_TENTATIVA,
+    MOTIVO_REPROVACAO_FINAL,
+    XpEvento,
+)
 from app.repositories.xp_repository import XpRepository
 
-XP_REPROVADO = 20
 XP_APROVADO = 80
 XP_BOM = 100
 XP_PERFEITO = 200
@@ -57,9 +67,8 @@ def calcular_nivel(xp_total: int) -> NivelInfo:
     )
 
 
-def _xp_primeira_tentativa(pontuacao: float, limite_aprovacao: float) -> int:
-    if pontuacao < limite_aprovacao:
-        return XP_REPROVADO
+def _xp_primeira_tentativa(pontuacao: float) -> int:
+    """Only reached for a PASSING first attempt (see `registrar_xp_por_tentativa`)."""
     if pontuacao < 80:
         return XP_APROVADO
     if pontuacao < 100:
@@ -73,17 +82,31 @@ def registrar_xp_por_tentativa(
     modulo_id: uuid.UUID,
     pontuacao: float,
     limite_aprovacao: float,
+    penalidade_reprovacao: int,
     era_primeira_tentativa: bool,
     melhoria_sobre_melhor_anterior: float,
     xp_repo: XpRepository,
 ) -> None:
+    if pontuacao < limite_aprovacao:
+        if penalidade_reprovacao > 0:
+            xp_repo.add(
+                XpEvento(
+                    user_id=user_id,
+                    materia_id=materia_id,
+                    modulo_id=modulo_id,
+                    quantidade=-penalidade_reprovacao,
+                    motivo=MOTIVO_REPROVACAO_FINAL,
+                )
+            )
+        return
+
     if era_primeira_tentativa:
         xp_repo.add(
             XpEvento(
                 user_id=user_id,
                 materia_id=materia_id,
                 modulo_id=modulo_id,
-                quantidade=_xp_primeira_tentativa(pontuacao, limite_aprovacao),
+                quantidade=_xp_primeira_tentativa(pontuacao),
                 motivo=MOTIVO_PRIMEIRA_TENTATIVA,
             )
         )

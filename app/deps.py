@@ -18,6 +18,7 @@ from app.ai.gemini_provider import GeminiProvider
 from app.config import Settings, get_settings
 from app.core.exceptions import NaoAutenticadoException
 from app.core.security import TokenPayload, decode_token, require_admin_role
+from app.repositories.configuracao_repository import ConfiguracaoRepo
 from app.repositories.conversa_repository import ConversaRepo
 from app.repositories.materia_repository import MateriaRepo
 from app.repositories.modulo_repository import ModuloRepo
@@ -42,6 +43,7 @@ __all__ = [
     "ConversaRepo",
     "XpRepo",
     "PerfilRepo",
+    "ConfiguracaoRepo",
 ]
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]

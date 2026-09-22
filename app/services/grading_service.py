@@ -185,6 +185,7 @@ def responder_tentativa(
     gabarito_map = questionario_repo.get_gabarito_map(list(ids_validos))
     questoes = questionario_repo.get_questoes_by_ids(list(ids_validos))
     explicacao_map = {q.id: q.explicacao for q in questoes}
+    enunciado_map = {q.id: q.enunciado for q in questoes}
 
     resultados: list[RespostaResultadoOut] = []
     respostas_model: list[RespostaTentativa] = []
@@ -197,6 +198,7 @@ def responder_tentativa(
         resultados.append(
             RespostaResultadoOut(
                 questao_id=resposta.questao_id,
+                enunciado=enunciado_map[resposta.questao_id],
                 resposta_escolhida=resposta.resposta_escolhida,
                 resposta_correta=resposta_correta,
                 correta=correta,

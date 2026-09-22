@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # Content generation tuning
     QUESTIONARIO_POOL_SIZE: int = 12
     TENTATIVA_NUM_QUESTOES: int = 5
-    PONTUACAO_MINIMA_APROVACAO: float = 60.0
+    PONTUACAO_MINIMA_APROVACAO: float = 75.0
     AGENTE_MAX_ITERACOES: int = 8  # safety cap on tool-call round-trips per chat turn
 
     # Student chat: how many of a conversation's most recent messages are sent

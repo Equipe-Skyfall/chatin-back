@@ -252,6 +252,9 @@ class InMemoryTentativaRepository:
         tentativa.pontuacao = pontuacao
         tentativa.total_corretas = total_corretas
 
+    def definir_feedback(self, tentativa: Tentativa, feedback: str | None) -> None:
+        tentativa.feedback = feedback
+
     def media_pontuacao_concluidas(self, user_id: str) -> float | None:
         pontuacoes = [
             float(t.pontuacao)
@@ -323,11 +326,16 @@ class InMemoryXpRepository:
         pass
 
     def total_por_usuario(self, user_id: str) -> int:
-        return sum(e.quantidade for e in self.eventos if e.user_id == user_id)
+        # Mirrors the real repository's floor-at-0 (a failing attempt records a
+        # negative penalty event, but the total is never negative).
+        return max(0, sum(e.quantidade for e in self.eventos if e.user_id == user_id))
 
     def total_por_usuario_e_materia(self, user_id: str, materia_id: uuid.UUID) -> int:
-        return sum(
-            e.quantidade
-            for e in self.eventos
-            if e.user_id == user_id and e.materia_id == materia_id
+        return max(
+            0,
+            sum(
+                e.quantidade
+                for e in self.eventos
+                if e.user_id == user_id and e.materia_id == materia_id
+            ),
         )

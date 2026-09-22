@@ -8,6 +8,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -65,6 +66,10 @@ class Tentativa(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     # regardless of this flag.
     pratica: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     total_corretas: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Best-effort AI feedback on this attempt's wrong answers (see
+    # `feedback_tentativa_service`) - None when the student aced it or when the
+    # provider was unavailable. Only set for módulo conclusion attempts.
+    feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     questionario: Mapped["Questionario | None"] = relationship()
     tema: Mapped["Tema | None"] = relationship()

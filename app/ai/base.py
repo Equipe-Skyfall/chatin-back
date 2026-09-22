@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 
 from app.ai.schemas import (
     ConteudoGerado,
+    ErroQuestao,
     FerramentaContexto,
     FonteEncontrada,
     MensagemAgente,
@@ -99,3 +100,10 @@ class AIProvider(ABC):
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         """Summarizes a student/teacher conversation into a short digest for
         the student's conversation-summary history."""
+
+    @abstractmethod
+    def gerar_feedback_erros(self, erros: list[ErroQuestao]) -> str:
+        """Short, natural-language feedback on what a student got wrong in an
+        attempt - grounded only in the wrong questions' own data (enunciado,
+        chosen/correct letter, explanation). Called best-effort by
+        `feedback_tentativa_service`: a failure here must NOT break grading."""

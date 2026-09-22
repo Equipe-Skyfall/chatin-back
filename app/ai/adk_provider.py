@@ -63,6 +63,7 @@ from app.ai.prompts import (
 from app.ai.schemas import (
     AlternativaGerada,
     ConteudoGerado,
+    ErroQuestao,
     FerramentaContexto,
     FonteEncontrada,
     MensagemAgente,
@@ -466,3 +467,6 @@ class AdkProvider(AIProvider):
 
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         return self._gemini.resumir_conversa(mensagens)
+
+    def gerar_feedback_erros(self, erros: list[ErroQuestao]) -> str:
+        return self._gemini.gerar_feedback_erros(erros)
