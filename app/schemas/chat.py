@@ -25,6 +25,15 @@ class AlunoChatMensagemInput(BaseModel):
 class ChatRespostaOut(BaseModel):
     conversa_id: UUID
     resposta: str
+    materia_criada_id: UUID | None = Field(
+        None,
+        description=(
+            "Só a resposta do aluno pode preenchê-lo (via criar_minha_trilha) - poll "
+            "GET /materias/{materia_criada_id}/temas para acompanhar o status do tema "
+            "recém-criado (`status` vai de 'gerando' para 'pronto'/'erro')."
+        ),
+    )
+    tema_criado_id: UUID | None = None
 
 
 class ConversaOut(BaseModel):

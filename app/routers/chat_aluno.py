@@ -87,7 +87,12 @@ def enviar_mensagem(
         ctx,
         settings.MEMORIA_JANELA_MENSAGENS,
     )
-    return ChatRespostaOut(conversa_id=conversa.id, resposta=resposta)
+    return ChatRespostaOut(
+        conversa_id=conversa.id,
+        resposta=resposta,
+        materia_criada_id=ctx.materia_criada_id,
+        tema_criado_id=ctx.tema_criado_id,
+    )
 
 
 @router.get("", response_model=list[ConversaOut])

@@ -138,6 +138,18 @@ def _ctx(
 # --- buscar_conteudo ---
 
 
+def test_buscar_conteudo_nao_preenche_ids_de_criacao():
+    """`materia_criada_id`/`tema_criado_id` on `ctx` are only ever written by
+    `criar_minha_trilha` - a tool that doesn't create anything must leave
+    them `None`, so the router doesn't hand back stale/wrong ids from an
+    earlier turn on the same `ctx` (each request builds a fresh `ctx`, but
+    the invariant is worth locking down directly)."""
+    ctx = _ctx()
+    executar_ferramenta_aluno("buscar_conteudo", {"termo": "x"}, ctx)
+    assert ctx.materia_criada_id is None
+    assert ctx.tema_criado_id is None
+
+
 def test_buscar_conteudo_sem_termo_pede_termo():
     resultado = executar_ferramenta_aluno("buscar_conteudo", {"termo": ""}, _ctx())
     assert "Informe um termo" in resultado
@@ -225,6 +237,11 @@ def test_criar_minha_trilha_cria_materia_e_tema_e_agenda_background_task():
     assert tema.materia_id == materia.id
     assert str(materia.id) in resultado and str(tema.id) in resultado
     assert "gerando" in resultado.lower() or "leva um" in resultado.lower()
+
+    # ctx is written to (not just the text reply) so the router can hand
+    # structured ids back to the frontend without parsing the model's text
+    assert ctx.materia_criada_id == materia.id
+    assert ctx.tema_criado_id == tema.id
 
     # scheduled, not run inline - no AI/DB work happened synchronously
     assert len(background_tasks.tarefas) == 1

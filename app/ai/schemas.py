@@ -144,6 +144,16 @@ class FerramentaContexto:
     user_id: str
     conversa_id: uuid.UUID
     background_tasks: BackgroundTasks | None = None
+    # Output, not input: `criar_minha_trilha` (agent_tools_aluno.py) writes
+    # these when it actually creates something, so the router can hand the
+    # ids back to the frontend (`ChatRespostaOut`) without the client having
+    # to parse them out of the model's free-text reply. `ctx` is the same
+    # object instance the whole way down the tool-calling loop, so a tool
+    # writing to it is visible to the router after the call returns -
+    # no AIProvider interface change needed for this. Never set by any
+    # admin tool; stays `None` on the admin chat's response.
+    materia_criada_id: uuid.UUID | None = None
+    tema_criado_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)

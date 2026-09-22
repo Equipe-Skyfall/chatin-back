@@ -115,6 +115,8 @@ def _criar_minha_trilha(args: dict[str, Any], ctx: FerramentaContexto) -> str:
     tema = curriculo_service.criar_tema_pendente(
         materia.id, titulo_tema, descricao_tema, ctx.materia_repo, ctx.tema_repo
     )
+    ctx.materia_criada_id = materia.id
+    ctx.tema_criado_id = tema.id
 
     if ctx.background_tasks is not None:
         ctx.background_tasks.add_task(
