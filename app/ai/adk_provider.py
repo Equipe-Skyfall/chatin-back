@@ -49,7 +49,7 @@ from google.genai import types as genai_types
 from pydantic import ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from app.ai.adk_schemas import PlanoModulosSchema, QuestionarioSchema
+from app.ai.adk_schemas import PlanoModulosSchema, QuestionarioSchema, ResumoEstudoSchema
 from app.ai.adk_tools import construir_tools
 from app.ai.base import AIProvider
 from app.ai.gemini_provider import GeminiProvider
@@ -59,10 +59,13 @@ from app.ai.prompts import (
     prompt_gerar_conteudo_modulo,
     prompt_gerar_questionario,
     prompt_planejar_modulos,
+    prompt_resumo_estudo,
 )
 from app.ai.schemas import (
     AlternativaGerada,
+    ConceitoChave,
     ConteudoGerado,
+    DuvidaResolvida,
     FerramentaContexto,
     FonteEncontrada,
     MensagemAgente,
@@ -71,6 +74,7 @@ from app.ai.schemas import (
     PlanoModulos,
     QuestaoGerada,
     QuestionarioGerado,
+    ResumoEstudoGerado,
 )
 from app.config import Settings
 from app.core.exceptions import AgenteLimiteExcedidoException, ProvedorIAIndisponivelException
@@ -116,6 +120,12 @@ class AdkProvider(AIProvider):
             model=settings.GEMINI_MODEL_SEARCH,
             instruction="Você é um assistente de pesquisa educacional.",
             tools=[google_search],
+        )
+        self._resumo_estudo_agent = LlmAgent(
+            name="resumo_estudo_agent",
+            model=settings.GEMINI_MODEL_PROFESSOR,
+            instruction="Você monta resumos de estudos preparatórios para alunos do ENEM.",
+            output_schema=ResumoEstudoSchema,
         )
         # The admin agent's own session store - persistent, unlike the
         # throwaway sessions the other methods above use, since its history
@@ -340,6 +350,52 @@ class AdkProvider(AIProvider):
         if not conteudo:
             raise ProvedorIAIndisponivelException("O provedor de IA retornou um conteúdo vazio.")
         return ConteudoGerado(conteudo=conteudo, modelo=self._settings.GEMINI_MODEL_CONTEUDO)
+
+    @_retry_transient
+    def gerar_resumo_estudo(
+        self,
+        historico: list[MensagemAgente],
+        materia_nome: str | None,
+        tema_titulo: str | None,
+        modulo_titulo: str,
+        conteudo_modulo: str | None,
+    ) -> ResumoEstudoGerado:
+        conversa_texto = "\n".join(m.conteudo for m in historico if m.conteudo) or None
+        prompt = prompt_resumo_estudo(
+            materia_nome, tema_titulo, modulo_titulo, conteudo_modulo, conversa_texto
+        )
+        try:
+            raw = self._run_single_turn(self._resumo_estudo_agent, prompt)
+        except ProvedorIAIndisponivelException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ProvedorIAIndisponivelException(
+                f"Falha ao gerar resumo de estudo: {exc}"
+            ) from exc
+
+        try:
+            schema = ResumoEstudoSchema.model_validate_json(raw)
+        except ValidationError as exc:
+            raise ProvedorIAIndisponivelException(
+                f"O provedor de IA não retornou o resumo no formato esperado: {exc}"
+            ) from exc
+
+        return ResumoEstudoGerado(
+            visao_geral=self._linha_unica(schema.visao_geral),
+            conceitos_chave=[
+                ConceitoChave(termo=c.termo, explicacao=self._linha_unica(c.explicacao))
+                for c in schema.conceitos_chave
+            ],
+            pontos_importantes=[self._linha_unica(p) for p in schema.pontos_importantes],
+            exemplos=[self._linha_unica(e) for e in schema.exemplos],
+            duvidas_do_aluno=[
+                DuvidaResolvida(pergunta=d.pergunta, resposta=self._linha_unica(d.resposta))
+                for d in schema.duvidas_do_aluno
+            ],
+            revisao_rapida=[self._linha_unica(r) for r in schema.revisao_rapida],
+            fontes=[str(f) for f in schema.fontes],
+            modelo=self._settings.GEMINI_MODEL_PROFESSOR,
+        )
 
     # --- admin tool-calling agent (Fase 3) ---
 

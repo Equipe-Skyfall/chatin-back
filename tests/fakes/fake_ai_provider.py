@@ -1,7 +1,9 @@
 from app.ai.base import AIProvider
 from app.ai.schemas import (
     AlternativaGerada,
+    ConceitoChave,
     ConteudoGerado,
+    DuvidaResolvida,
     FerramentaContexto,
     FonteEncontrada,
     MensagemAgente,
@@ -9,6 +11,7 @@ from app.ai.schemas import (
     PlanoModulos,
     QuestaoGerada,
     QuestionarioGerado,
+    ResumoEstudoGerado,
 )
 
 
@@ -42,6 +45,9 @@ class FakeAIProvider(AIProvider):
         self.historicos_recebidos: list[list[MensagemAgente]] = []
         self.falhar_responder_pergunta_aluno = False
         self.falhar_resumir_conversa = False
+        self.gerar_resumo_estudo_calls = 0
+        self.falhar_gerar_resumo_estudo = False
+        self.resumos_estudo_recebidos: list[dict] = []
 
     def buscar_fontes(
         self, tema_titulo: str, tema_descricao: str | None, direcionamento: str | None = None
@@ -153,3 +159,34 @@ class FakeAIProvider(AIProvider):
         if self.falhar_resumir_conversa:
             raise RuntimeError("falha simulada ao resumir conversa")
         return "Resumo de teste da conversa."
+
+    def gerar_resumo_estudo(
+        self,
+        historico: list[MensagemAgente],
+        materia_nome: str | None,
+        tema_titulo: str | None,
+        modulo_titulo: str,
+        conteudo_modulo: str | None,
+    ) -> ResumoEstudoGerado:
+        self.gerar_resumo_estudo_calls += 1
+        self.resumos_estudo_recebidos.append(
+            {
+                "historico": list(historico),
+                "materia_nome": materia_nome,
+                "tema_titulo": tema_titulo,
+                "modulo_titulo": modulo_titulo,
+                "conteudo_modulo": conteudo_modulo,
+            }
+        )
+        if self.falhar_gerar_resumo_estudo:
+            raise RuntimeError("falha simulada ao gerar resumo de estudo")
+        return ResumoEstudoGerado(
+            visao_geral=f"Visão geral de {modulo_titulo}.",
+            conceitos_chave=[ConceitoChave(termo="Conceito", explicacao="Explicação de teste.")],
+            pontos_importantes=["Ponto importante de teste."],
+            exemplos=["Exemplo de teste."],
+            duvidas_do_aluno=[DuvidaResolvida(pergunta="Dúvida?", resposta="Resposta de teste.")],
+            revisao_rapida=["Revisar conceito."],
+            fontes=["https://example.org"],
+            modelo="fake-model",
+        )

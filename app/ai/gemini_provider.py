@@ -19,7 +19,11 @@ from google.genai import types
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.ai.base import AIProvider
-from app.ai.gemini_schemas import PLANO_MODULOS_RESPONSE_SCHEMA, QUESTIONARIO_RESPONSE_SCHEMA
+from app.ai.gemini_schemas import (
+    PLANO_MODULOS_RESPONSE_SCHEMA,
+    QUESTIONARIO_RESPONSE_SCHEMA,
+    RESUMO_ESTUDO_RESPONSE_SCHEMA,
+)
 from app.ai.prompts import (
     AGENTE_ADMIN_SYSTEM_INSTRUCTION,
     prompt_buscar_fontes,
@@ -28,11 +32,14 @@ from app.ai.prompts import (
     prompt_planejar_modulos,
     prompt_professor_aluno_system,
     prompt_resumir_conversa,
+    prompt_resumo_estudo,
 )
 from app.ai.schemas import (
     AlternativaGerada,
     ChamadaFerramenta,
+    ConceitoChave,
     ConteudoGerado,
+    DuvidaResolvida,
     FerramentaContexto,
     FerramentaDeclaracao,
     FonteEncontrada,
@@ -42,6 +49,7 @@ from app.ai.schemas import (
     QuestaoGerada,
     QuestionarioGerado,
     RespostaAgente,
+    ResumoEstudoGerado,
 )
 from app.config import Settings
 from app.core.exceptions import AgenteLimiteExcedidoException, ProvedorIAIndisponivelException
@@ -500,3 +508,92 @@ class GeminiProvider(AIProvider):
         if not texto:
             raise ProvedorIAIndisponivelException("O provedor de IA retornou um resumo vazio.")
         return texto
+
+    def gerar_resumo_estudo(
+        self,
+        historico: list[MensagemAgente],
+        materia_nome: str | None,
+        tema_titulo: str | None,
+        modulo_titulo: str,
+        conteudo_modulo: str | None,
+    ) -> ResumoEstudoGerado:
+        conversa_texto = "\n".join(m.conteudo for m in historico if m.conteudo) or None
+        raw = self._gerar_resumo_estudo_raw(
+            materia_nome, tema_titulo, modulo_titulo, conteudo_modulo, conversa_texto
+        )
+        try:
+            return self._parse_resumo_estudo(raw)
+        except (ValueError, KeyError, json.JSONDecodeError) as exc:
+            logger.warning("Resumo de estudo fora do formato esperado, tentando novamente: %s", exc)
+            raw = self._gerar_resumo_estudo_raw(
+                materia_nome,
+                tema_titulo,
+                modulo_titulo,
+                conteudo_modulo,
+                conversa_texto,
+                reforco=(
+                    "IMPORTANTE: responda estritamente no formato JSON solicitado, preenchendo "
+                    "todos os campos do template."
+                ),
+            )
+            try:
+                return self._parse_resumo_estudo(raw)
+            except (ValueError, KeyError, json.JSONDecodeError) as exc2:
+                raise ProvedorIAIndisponivelException(
+                    f"O provedor de IA não retornou o resumo no formato esperado: {exc2}"
+                ) from exc2
+
+    @_retry_transient
+    def _gerar_resumo_estudo_raw(
+        self,
+        materia_nome: str | None,
+        tema_titulo: str | None,
+        modulo_titulo: str,
+        conteudo_modulo: str | None,
+        conversa_texto: str | None,
+        reforco: str = "",
+    ) -> str:
+        prompt = prompt_resumo_estudo(
+            materia_nome, tema_titulo, modulo_titulo, conteudo_modulo, conversa_texto
+        )
+        if reforco:
+            prompt = f"{prompt}\n\n{reforco}"
+        try:
+            response = self._client.models.generate_content(
+                model=self._settings.GEMINI_MODEL_PROFESSOR,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=RESUMO_ESTUDO_RESPONSE_SCHEMA,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise ProvedorIAIndisponivelException(
+                f"Falha ao gerar resumo de estudo: {exc}"
+            ) from exc
+        return getattr(response, "text", None) or ""
+
+    def _parse_resumo_estudo(self, raw: str) -> ResumoEstudoGerado:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("esperava um objeto JSON com o resumo de estudo")
+        return ResumoEstudoGerado(
+            visao_geral=self._linha_unica(data["visao_geral"]),
+            conceitos_chave=[
+                ConceitoChave(termo=c["termo"], explicacao=self._linha_unica(c["explicacao"]))
+                for c in data.get("conceitos_chave", [])
+            ],
+            pontos_importantes=[
+                self._linha_unica(p) for p in data.get("pontos_importantes", [])
+            ],
+            exemplos=[self._linha_unica(e) for e in data.get("exemplos", [])],
+            duvidas_do_aluno=[
+                DuvidaResolvida(
+                    pergunta=d["pergunta"], resposta=self._linha_unica(d["resposta"])
+                )
+                for d in data.get("duvidas_do_aluno", [])
+            ],
+            revisao_rapida=[self._linha_unica(r) for r in data.get("revisao_rapida", [])],
+            fontes=[str(f) for f in data.get("fontes", [])],
+            modelo=self._settings.GEMINI_MODEL_PROFESSOR,
+        )

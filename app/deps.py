@@ -24,6 +24,7 @@ from app.repositories.modulo_repository import ModuloRepo
 from app.repositories.perfil_repository import PerfilRepo
 from app.repositories.progresso_repository import ProgressoRepo
 from app.repositories.questionario_repository import QuestionarioRepo
+from app.repositories.resumo_estudo_repository import ResumoEstudoRepo
 from app.repositories.tema_repository import TemaRepo
 from app.repositories.tentativa_repository import TentativaRepo
 from app.repositories.xp_repository import XpRepo
@@ -42,6 +43,7 @@ __all__ = [
     "ConversaRepo",
     "XpRepo",
     "PerfilRepo",
+    "ResumoEstudoRepo",
 ]
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]

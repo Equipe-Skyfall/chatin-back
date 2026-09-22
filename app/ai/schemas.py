@@ -56,6 +56,34 @@ class QuestionarioGerado:
 
 
 @dataclass(frozen=True)
+class ConceitoChave:
+    termo: str
+    explicacao: str
+
+
+@dataclass(frozen=True)
+class DuvidaResolvida:
+    pergunta: str
+    resposta: str
+
+
+@dataclass(frozen=True)
+class ResumoEstudoGerado:
+    """A módulo-scoped study summary, filled into the fixed template the
+    Biblioteca renders and the PDF export is built from. Provider-agnostic -
+    each provider maps its own structured-output schema into this shape."""
+
+    visao_geral: str
+    conceitos_chave: list[ConceitoChave]
+    pontos_importantes: list[str]
+    exemplos: list[str]
+    duvidas_do_aluno: list[DuvidaResolvida]
+    revisao_rapida: list[str]
+    fontes: list[str]
+    modelo: str
+
+
+@dataclass(frozen=True)
 class ModuloPlanejado:
     titulo: str
     descricao: str
