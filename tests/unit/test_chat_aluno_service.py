@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 import pytest
 
 from app.ai.schemas import FerramentaContexto
-from app.core.exceptions import ConversaOcupadaException
+from app.core.exceptions import ConversaOcupadaException, ProvedorIAIndisponivelException
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, TIPO_ALUNO, Conversa, Mensagem
 from app.services import chat_aluno_service
 from tests.builders.modulo_builder import ModuloBuilder
@@ -179,3 +179,56 @@ def test_colisao_de_ordem_vira_conversa_ocupada_sem_chamar_a_ia(fake_ai_provider
     assert conversa_repo.rollbacks == 1
     assert fake_ai_provider.conversar_com_agente_aluno_calls == 0
     assert conversa.mensagens == []
+
+
+# --- obter_ou_gerar_resumo ---
+
+
+def test_obter_ou_gerar_resumo_gera_quando_ausente(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=2)
+    conversa_repo.add(conversa)
+
+    resumo = chat_aluno_service.obter_ou_gerar_resumo(conversa, conversa_repo, fake_ai_provider)
+
+    assert resumo == "Resumo de teste da conversa."
+    assert conversa.resumo == "Resumo de teste da conversa."
+    assert conversa.resumo_gerado_em is not None
+
+
+def test_obter_ou_gerar_resumo_ia_falha_sem_resumo_anterior_retorna_none(
+    fake_ai_provider, monkeypatch
+):
+    """A empty/failed candidate from Gemini (a real, observed failure mode -
+    `finish_reason=STOP` with no content) must not break the whole
+    `/chat/resumos` list for every other conversation (RNF6)."""
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=2)
+    conversa_repo.add(conversa)
+
+    def _falhar(_mensagens):
+        raise ProvedorIAIndisponivelException("O provedor de IA retornou um resumo vazio.")
+
+    monkeypatch.setattr(fake_ai_provider, "resumir_conversa", _falhar)
+
+    resumo = chat_aluno_service.obter_ou_gerar_resumo(conversa, conversa_repo, fake_ai_provider)
+
+    assert resumo is None
+    assert conversa.resumo_gerado_em is None
+
+
+def test_obter_ou_gerar_resumo_ia_falha_mantem_resumo_anterior(fake_ai_provider, monkeypatch):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=2)
+    conversa.resumo = "Resumo antigo."
+    conversa.resumo_gerado_em = datetime(2020, 1, 1, tzinfo=UTC)  # stale on purpose
+    conversa_repo.add(conversa)
+
+    def _falhar(_mensagens):
+        raise ProvedorIAIndisponivelException("O provedor de IA retornou um resumo vazio.")
+
+    monkeypatch.setattr(fake_ai_provider, "resumir_conversa", _falhar)
+
+    resumo = chat_aluno_service.obter_ou_gerar_resumo(conversa, conversa_repo, fake_ai_provider)
+
+    assert resumo == "Resumo antigo."

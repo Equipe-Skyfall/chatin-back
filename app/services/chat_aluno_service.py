@@ -5,16 +5,19 @@ loop/session mechanics under the hood (`AIProvider.conversar_com_agente_
 aluno`) - see `app/ai/base.py`.
 """
 
+import logging
 from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 
 from app.ai.base import AIProvider
 from app.ai.schemas import FerramentaContexto, MensagemAgente
-from app.core.exceptions import ConversaOcupadaException
+from app.core.exceptions import ConversaOcupadaException, ProvedorIAIndisponivelException
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, Conversa, Mensagem
 from app.repositories.conversa_repository import ConversaRepository
 from app.repositories.modulo_repository import ModuloRepository
+
+logger = logging.getLogger(__name__)
 
 
 def _mensagem_para_historico(mensagem: Mensagem) -> MensagemAgente:
@@ -75,7 +78,10 @@ def obter_ou_gerar_resumo(
     """Lazily (re)generates the conversation's summary - only when it's
     missing or stale (the conversation moved on since the last summary), not
     on every read and never on every message. Returns None for a conversation
-    with no messages yet (nothing to summarize)."""
+    with no messages yet (nothing to summarize) or when the AI provider fails
+    (RNF6) - one conversation's summary failing must not break the rest of
+    the list (see `listar_resumos`), and the stale summary just gets retried
+    on the next call instead of being persisted as a failure."""
     esta_atualizado = (
         conversa.resumo is not None
         and conversa.resumo_gerado_em is not None
@@ -89,7 +95,15 @@ def obter_ou_gerar_resumo(
         return None
 
     historico = [_mensagem_para_historico(m) for m in completa.mensagens]
-    resumo = ai_provider.resumir_conversa(historico)
+    try:
+        resumo = ai_provider.resumir_conversa(historico)
+    except ProvedorIAIndisponivelException:
+        logger.warning(
+            "Falha ao gerar resumo da conversa %s; mantendo resumo anterior (se houver).",
+            conversa.id,
+            exc_info=True,
+        )
+        return conversa.resumo
     completa.resumo = resumo
     completa.resumo_gerado_em = datetime.now(UTC)
     conversa_repo.add(completa)
