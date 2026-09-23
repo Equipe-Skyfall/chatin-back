@@ -258,6 +258,9 @@ class InMemoryTentativaRepository:
         tentativa.pontuacao = pontuacao
         tentativa.total_corretas = total_corretas
 
+    def definir_feedback(self, tentativa: Tentativa, feedback: str | None) -> None:
+        tentativa.feedback = feedback
+
     def media_pontuacao_concluidas(self, user_id: str) -> float | None:
         pontuacoes = [
             float(t.pontuacao)

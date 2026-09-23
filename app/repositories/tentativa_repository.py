@@ -53,6 +53,10 @@ class TentativaRepository(SqlAlchemyRepository[Tentativa]):
         tentativa.pontuacao = pontuacao
         tentativa.total_corretas = total_corretas
 
+    def definir_feedback(self, tentativa: Tentativa, feedback: str | None) -> None:
+        """Persists the best-effort AI feedback (see `feedback_tentativa_service`)."""
+        tentativa.feedback = feedback
+
     def media_pontuacao_concluidas(self, user_id: str) -> float | None:
         """The student's general skill signal for adaptive question selection
         (see `dificuldade_service`) - average score across every attempt

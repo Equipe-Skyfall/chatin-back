@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 
 from app.ai.schemas import (
     ConteudoGerado,
+    ErroQuestao,
     FerramentaContexto,
     FonteEncontrada,
     MensagemAgente,
@@ -119,3 +120,10 @@ class AIProvider(ABC):
         (visão geral, conceitos-chave, pontos importantes, exemplos, dúvidas
         do aluno, revisão rápida, fontes). Unlike `resumir_conversa`, this is
         an addressable Biblioteca artifact, not a per-conversation digest."""
+
+    @abstractmethod
+    def gerar_feedback_erros(self, erros: list[ErroQuestao]) -> str:
+        """Short, natural-language feedback on what a student got wrong in an
+        attempt - grounded only in the wrong questions' own data (enunciado,
+        chosen/correct letter, explanation). Called best-effort by
+        `feedback_tentativa_service`: a failure here must NOT break grading."""

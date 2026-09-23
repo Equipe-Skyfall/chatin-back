@@ -89,6 +89,18 @@ class ResumoEstudoGerado:
 
 
 @dataclass(frozen=True)
+class ErroQuestao:
+    """One wrong answer of an attempt, fed to `AIProvider.gerar_feedback_erros`
+    - only the data of the question the student missed, never the whole
+    attempt or the correct answers of the ones they got right."""
+
+    enunciado: str
+    resposta_escolhida: Letra
+    resposta_correta: Letra
+    explicacao: str | None = None
+
+
+@dataclass(frozen=True)
 class ModuloPlanejado:
     titulo: str
     descricao: str

@@ -241,3 +241,15 @@ def prompt_resumo_estudo(
         "conversa.\n\n"
         f"CONTEÚDO DO MÓDULO:\n{conteudo_texto}{conversa_bloco}"
     )
+
+
+def prompt_feedback_erros(erros_texto: str) -> str:
+    return (
+        "Você é um professor particular ajudando um estudante brasileiro a se preparar para o "
+        "ENEM. O aluno errou as questões de múltipla escolha listadas abaixo. Escreva um "
+        "feedback curto e direto, em português, em no máximo 4 frases, explicando o que ele "
+        "errou e o que vale revisar. Sintetize o padrão dos erros em vez de repetir cada "
+        "enunciado na íntegra ou listar alternativa por alternativa. Não cumprimente, não se "
+        "dirija ao aluno pelo nome e não use marcadores - devolva apenas o texto do feedback.\n\n"
+        f"ERROS DO ALUNO:\n{erros_texto}"
+    )

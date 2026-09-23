@@ -4,6 +4,7 @@ from app.ai.schemas import (
     ConceitoChave,
     ConteudoGerado,
     DuvidaResolvida,
+    ErroQuestao,
     FerramentaContexto,
     FonteEncontrada,
     MensagemAgente,
@@ -49,6 +50,9 @@ class FakeAIProvider(AIProvider):
         self.gerar_resumo_estudo_calls = 0
         self.falhar_gerar_resumo_estudo = False
         self.resumos_estudo_recebidos: list[dict] = []
+        self.gerar_feedback_erros_calls = 0
+        self.erros_recebidos: list[list[ErroQuestao]] = []
+        self.falhar_gerar_feedback_erros = False
 
     def buscar_fontes(
         self, tema_titulo: str, tema_descricao: str | None, direcionamento: str | None = None
@@ -195,3 +199,10 @@ class FakeAIProvider(AIProvider):
             fontes=["https://example.org"],
             modelo="fake-model",
         )
+
+    def gerar_feedback_erros(self, erros: list[ErroQuestao]) -> str:
+        self.gerar_feedback_erros_calls += 1
+        self.erros_recebidos.append(list(erros))
+        if self.falhar_gerar_feedback_erros:
+            raise RuntimeError("falha simulada ao gerar feedback")
+        return "Feedback de teste."

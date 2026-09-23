@@ -17,6 +17,7 @@ class ResponderRequest(BaseModel):
 
 class RespostaResultadoOut(BaseModel):
     questao_id: UUID
+    enunciado: str
     resposta_escolhida: Letra
     resposta_correta: Letra
     correta: bool
@@ -30,6 +31,8 @@ class TentativaResultadoOut(BaseModel):
     pontuacao: float
     total_questoes: int
     total_corretas: int
+    aprovado: bool
+    feedback: str | None = None
     resultados: list[RespostaResultadoOut]
 
 

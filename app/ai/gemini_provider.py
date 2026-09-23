@@ -28,6 +28,7 @@ from app.ai.prompts import (
     AGENTE_ADMIN_SYSTEM_INSTRUCTION,
     prompt_agente_aluno_system,
     prompt_buscar_fontes,
+    prompt_feedback_erros,
     prompt_gerar_conteudo_modulo,
     prompt_gerar_questionario,
     prompt_planejar_modulos,
@@ -40,6 +41,7 @@ from app.ai.schemas import (
     ConceitoChave,
     ConteudoGerado,
     DuvidaResolvida,
+    ErroQuestao,
     FerramentaContexto,
     FerramentaDeclaracao,
     FonteEncontrada,
@@ -614,3 +616,32 @@ class GeminiProvider(AIProvider):
             fontes=[str(f) for f in data.get("fontes", [])],
             modelo=self._settings.GEMINI_MODEL_PROFESSOR,
         )
+
+    @staticmethod
+    def _formatar_erros(erros: list[ErroQuestao]) -> str:
+        blocos: list[str] = []
+        for erro in erros:
+            bloco = (
+                f"Questão: {erro.enunciado}\n"
+                f"Resposta do aluno: {erro.resposta_escolhida}\n"
+                f"Resposta correta: {erro.resposta_correta}"
+            )
+            if erro.explicacao:
+                bloco += f"\nExplicação da correta: {erro.explicacao}"
+            blocos.append(bloco)
+        return "\n\n".join(blocos)
+
+    @_retry_transient
+    def gerar_feedback_erros(self, erros: list[ErroQuestao]) -> str:
+        try:
+            response = self._client.models.generate_content(
+                model=self._settings.GEMINI_MODEL_PROFESSOR,
+                contents=prompt_feedback_erros(self._formatar_erros(erros)),
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise ProvedorIAIndisponivelException(f"Falha ao gerar feedback: {exc}") from exc
+
+        texto = (getattr(response, "text", None) or "").strip()
+        if not texto:
+            raise ProvedorIAIndisponivelException("O provedor de IA retornou um feedback vazio.")
+        return texto

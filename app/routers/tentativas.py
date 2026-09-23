@@ -28,7 +28,11 @@ from app.models.tema import STATUS_PRONTO as TEMA_STATUS_PRONTO
 from app.schemas.progresso import ProgressoOut
 from app.schemas.questionario import AlternativaOut, QuestaoOut, TentativaIniciarOut
 from app.schemas.tentativa import ResponderRequest, TentativaHistoricoOut, TentativaResultadoOut
-from app.services import grading_service, questionario_personalizado_service
+from app.services import (
+    feedback_tentativa_service,
+    grading_service,
+    questionario_personalizado_service,
+)
 from app.services.progresso_service import (
     atualizar_progresso,
     estado_modulo,
@@ -180,6 +184,7 @@ def responder_tentativa(
     modulo_repo: ModuloRepo,
     tema_repo: TemaRepo,
     xp_repo: XpRepo,
+    ai_provider: AiProviderDep,
     settings: SettingsDep,
 ) -> TentativaResultadoOut:
     tentativa = tentativa_repo.get(tentativa_id)
@@ -189,6 +194,10 @@ def responder_tentativa(
     tentativa, resultados = grading_service.responder_tentativa(
         tentativa, body.respostas, questionario_repo, tentativa_repo
     )
+
+    limite_aprovacao = settings.PONTUACAO_MINIMA_APROVACAO
+    aprovado = float(tentativa.pontuacao) >= limite_aprovacao
+    feedback: str | None = None
 
     if tentativa.questionario_id is not None and not tentativa.pratica:
         modulo_id = tentativa.questionario.modulo_id
@@ -200,10 +209,15 @@ def responder_tentativa(
             modulo_id,
             tema.materia_id,
             float(tentativa.pontuacao),
-            settings.PONTUACAO_MINIMA_APROVACAO,
+            limite_aprovacao,
             xp_repo,
         )
         progresso_repo.commit()
+
+        # Best-effort: a provider failure yields `None` and never breaks grading.
+        feedback = feedback_tentativa_service.gerar_feedback(resultados, ai_provider)
+        tentativa_repo.definir_feedback(tentativa, feedback)
+        tentativa_repo.commit()
     # a tema-scoped (review) or `pratica` attempt is practice only - no progress/XP change
 
     return TentativaResultadoOut(
@@ -213,6 +227,8 @@ def responder_tentativa(
         pontuacao=float(tentativa.pontuacao),
         total_questoes=tentativa.total_questoes,
         total_corretas=tentativa.total_corretas,
+        aprovado=aprovado,
+        feedback=feedback,
         resultados=resultados,
     )
 
