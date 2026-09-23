@@ -109,7 +109,7 @@ implementados e verificados ao vivo contra o banco real para tudo marcado ✅.
 
 ## 13. Resumo de estudo + Biblioteca + PDF ✅
 - Um resumo de estudo por **módulo** por aluno: `resumos_estudo` (migration
-  `0013`), com `UniqueConstraint (user_id, modulo_id)` - regenerar faz upsert
+  `0014`), com `UniqueConstraint (user_id, modulo_id)` - regenerar faz upsert
   no mesmo registro, nunca duplica ("um resumo por módulo", a Biblioteca como
   um livro dos resumos).
 - `POST /resumos {conversa_id}` gera/regera a partir do **conteúdo do módulo**
