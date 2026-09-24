@@ -22,6 +22,7 @@ from app.models.resumo_estudo import ResumoEstudo
 from app.repositories.conversa_repository import ConversaRepository
 from app.repositories.modulo_repository import ModuloRepository
 from app.repositories.resumo_estudo_repository import ResumoEstudoRepository
+from app.services.fonte_pipeline import nomes_das_fontes
 
 # Caps how much of the student's own conversation text is embedded in the
 # generation prompt - same reasoning as `questionario_personalizado_service`
@@ -60,7 +61,7 @@ def _historico(
     ]
 
 
-def _serializar(gerado: ResumoEstudoGerado) -> dict:
+def _serializar(gerado: ResumoEstudoGerado, fontes: list[str]) -> dict:
     return {
         "visao_geral": gerado.visao_geral,
         "conceitos_chave": [
@@ -72,7 +73,7 @@ def _serializar(gerado: ResumoEstudoGerado) -> dict:
             {"pergunta": d.pergunta, "resposta": d.resposta} for d in gerado.duvidas_do_aluno
         ],
         "revisao_rapida": list(gerado.revisao_rapida),
-        "fontes": list(gerado.fontes),
+        "fontes": fontes,
     }
 
 
@@ -124,7 +125,10 @@ def gerar_resumo(
     resumo.materia_nome = materia.nome if materia is not None else None
     resumo.tema_titulo = tema.titulo if tema is not None else None
     resumo.modulo_titulo = modulo.titulo
-    resumo.conteudo = _serializar(gerado)
+    # The sources are the pages the tema's search actually cited, not something
+    # the model is asked to recall - with none in its prompt it invented
+    # placeholders ("Fontes 1" ... "Fontes 5").
+    resumo.conteudo = _serializar(gerado, nomes_das_fontes(tema.fontes) if tema else [])
     resumo.modelo_ia = gerado.modelo
     resumo_repo.commit()
     resumo_repo.refresh(resumo)

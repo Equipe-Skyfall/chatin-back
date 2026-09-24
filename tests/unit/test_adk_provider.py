@@ -22,6 +22,7 @@ from app.ai.schemas import (
     MensagemAgente,
     PlanoModulos,
     QuestionarioGerado,
+    ReferenciaFonte,
 )
 from app.config import Settings
 from app.core.exceptions import (
@@ -142,7 +143,7 @@ def test_gerar_conteudo_modulo_vazio_levanta_excecao(provider):
             provider.gerar_conteudo_modulo("Tema", "Módulo", None, ["fonte"])
 
 
-def test_buscar_fontes_com_grounding_mapeia_chunks(provider):
+def test_buscar_fontes_com_grounding_guarda_o_texto_uma_vez_com_as_referencias(provider):
     class _Web:
         def __init__(self, title, uri):
             self.title = title
@@ -156,15 +157,25 @@ def test_buscar_fontes_com_grounding_mapeia_chunks(provider):
         def __init__(self, chunks):
             self.grounding_chunks = chunks
 
-    grounding = _Grounding([_Chunk(_Web("Fonte A", "https://a.example"))])
+    grounding = _Grounding(
+        [
+            _Chunk(_Web("a.example", "https://redirect/a")),
+            _Chunk(_Web("b.example", "https://redirect/b")),
+            _Chunk(_Web("a.example", "https://redirect/a")),  # repetida - não duplica
+        ]
+    )
     with _mock_run_single_turn_full("texto sintetizado", grounding):
         fontes = provider.buscar_fontes("Tema", None)
 
     assert len(fontes) == 1
     assert isinstance(fontes[0], FonteEncontrada)
-    assert fontes[0].titulo == "Fonte A"
-    assert fontes[0].origem == "https://a.example"
+    assert fontes[0].titulo == "Busca automática: Tema"
+    assert fontes[0].origem is None
     assert fontes[0].conteudo == "texto sintetizado"
+    assert fontes[0].referencias == (
+        ReferenciaFonte(titulo="a.example", origem="https://redirect/a"),
+        ReferenciaFonte(titulo="b.example", origem="https://redirect/b"),
+    )
 
 
 def test_buscar_fontes_sem_grounding_usa_fallback(provider):
@@ -175,6 +186,7 @@ def test_buscar_fontes_sem_grounding_usa_fallback(provider):
     assert fontes[0].titulo == "Busca automática: Tema"
     assert fontes[0].origem is None
     assert fontes[0].conteudo == "texto sintetizado"
+    assert fontes[0].referencias == ()
 
 
 @pytest.mark.parametrize(

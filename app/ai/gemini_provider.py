@@ -24,6 +24,7 @@ from app.ai.gemini_schemas import (
     QUESTIONARIO_RESPONSE_SCHEMA,
     RESUMO_ESTUDO_RESPONSE_SCHEMA,
 )
+from app.ai.grounding import fontes_a_partir_do_grounding
 from app.ai.prompts import (
     AGENTE_ADMIN_SYSTEM_INSTRUCTION,
     prompt_agente_aluno_system,
@@ -102,22 +103,7 @@ class GeminiProvider(AIProvider):
         grounding = getattr(candidates[0], "grounding_metadata", None) if candidates else None
         chunks = getattr(grounding, "grounding_chunks", None) or []
 
-        fontes: list[FonteEncontrada] = []
-        for chunk in chunks:
-            web = getattr(chunk, "web", None)
-            titulo = getattr(web, "title", None) or f"Fonte sobre {tema_titulo}"
-            uri = getattr(web, "uri", None)
-            fontes.append(FonteEncontrada(titulo=titulo, origem=uri, conteudo=texto))
-
-        if not fontes:
-            # No grounding chunks came back - keep the model's synthesized text as a single
-            # source rather than failing the whole pipeline over an empty citations list.
-            fontes.append(
-                FonteEncontrada(
-                    titulo=f"Busca automática: {tema_titulo}", origem=None, conteudo=texto
-                )
-            )
-        return fontes
+        return fontes_a_partir_do_grounding(texto, chunks, tema_titulo)
 
     @_retry_transient
     def gerar_conteudo_modulo(
@@ -613,7 +599,6 @@ class GeminiProvider(AIProvider):
                 for d in data.get("duvidas_do_aluno", [])
             ],
             revisao_rapida=[self._linha_unica(r) for r in data.get("revisao_rapida", [])],
-            fontes=[str(f) for f in data.get("fontes", [])],
             modelo=self._settings.GEMINI_MODEL_PROFESSOR,
         )
 

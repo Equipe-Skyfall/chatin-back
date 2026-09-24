@@ -79,7 +79,6 @@ RESUMO_ESTUDO_RESPONSE_SCHEMA: dict[str, Any] = {
             },
         },
         "revisao_rapida": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "fontes": {"type": "ARRAY", "items": {"type": "STRING"}},
     },
     "required": [
         "visao_geral",
@@ -88,6 +87,5 @@ RESUMO_ESTUDO_RESPONSE_SCHEMA: dict[str, Any] = {
         "exemplos",
         "duvidas_do_aluno",
         "revisao_rapida",
-        "fontes",
     ],
 }

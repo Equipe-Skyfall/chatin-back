@@ -9,6 +9,7 @@ from app.core.exceptions import (
     ResumoEstudoSemModuloException,
 )
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, TIPO_ALUNO, Conversa, Mensagem
+from app.models.fonte import Fonte
 from app.services import resumo_estudo_service
 from tests.builders.materia_builder import MateriaBuilder
 from tests.builders.modulo_builder import ModuloBuilder
@@ -70,6 +71,46 @@ def test_gera_e_persiste_resumo_uma_vez(fake_ai_provider):
         {"termo": "Conceito", "explicacao": "Explicação de teste."}
     ]
     assert list(resumo_repo.resumos.values()) == [resumo]
+
+
+def test_fontes_do_resumo_vem_das_fontes_reais_do_tema(fake_ai_provider):
+    modulo_id = uuid.uuid4()
+    modulo = _modulo(modulo_id)
+    modulo.tema.fontes = [
+        Fonte(
+            tema_id=modulo.tema.id,
+            conteudo_extraido="texto",
+            metadata_={
+                "titulo": "Busca automática: Cálculo 1",
+                "referencias": [
+                    {"titulo": "ufpel.edu.br", "origem": "https://redirect/1"},
+                    {"titulo": "descomplica.com.br", "origem": "https://redirect/2"},
+                ],
+            },
+        )
+    ]
+    conversa_repo, modulo_repo, resumo_repo = _repos(modulo)
+    conversa = _conversa(modulo_id=modulo_id)
+    conversa_repo.add(conversa)
+
+    resumo = resumo_estudo_service.gerar_resumo(
+        "user-1", conversa.id, conversa_repo, modulo_repo, resumo_repo, fake_ai_provider
+    )
+
+    assert resumo.conteudo["fontes"] == ["ufpel.edu.br", "descomplica.com.br"]
+
+
+def test_resumo_de_tema_sem_fontes_citadas_tem_lista_vazia(fake_ai_provider):
+    modulo_id = uuid.uuid4()
+    conversa_repo, modulo_repo, resumo_repo = _repos(_modulo(modulo_id))
+    conversa = _conversa(modulo_id=modulo_id)
+    conversa_repo.add(conversa)
+
+    resumo = resumo_estudo_service.gerar_resumo(
+        "user-1", conversa.id, conversa_repo, modulo_repo, resumo_repo, fake_ai_provider
+    )
+
+    assert resumo.conteudo["fontes"] == []
 
 
 def test_regenerar_faz_upsert_sem_duplicar(fake_ai_provider):

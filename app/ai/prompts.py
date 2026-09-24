@@ -235,8 +235,6 @@ def prompt_resumo_estudo(
         "- 'duvidas_do_aluno': as dúvidas efetivamente levantadas pelo aluno na conversa "
         "(se não houver conversa, devolva uma lista vazia).\n"
         "- 'revisao_rapida': um checklist curto de itens para revisar antes da prova.\n"
-        "- 'fontes': referências citadas no conteúdo do módulo (devolva uma lista vazia se não "
-        "houver).\n"
         "Baseie-se no CONTEÚDO do módulo abaixo - não invente fatos que não estejam ali ou na "
         "conversa.\n\n"
         f"CONTEÚDO DO MÓDULO:\n{conteudo_texto}{conversa_bloco}"

@@ -12,6 +12,7 @@ from app.ai.schemas import (
     PlanoModulos,
     QuestaoGerada,
     QuestionarioGerado,
+    ReferenciaFonte,
     ResumoEstudoGerado,
 )
 
@@ -66,6 +67,9 @@ class FakeAIProvider(AIProvider):
                 titulo=f"Fonte sobre {tema_titulo}",
                 origem="https://example.org",
                 conteudo="Conteúdo de teste.",
+                referencias=(
+                    ReferenciaFonte(titulo="example.org", origem="https://redirect.example/1"),
+                ),
             )
         ]
 
@@ -196,7 +200,6 @@ class FakeAIProvider(AIProvider):
             exemplos=["Exemplo de teste."],
             duvidas_do_aluno=[DuvidaResolvida(pergunta="Dúvida?", resposta="Resposta de teste.")],
             revisao_rapida=["Revisar conceito."],
-            fontes=["https://example.org"],
             modelo="fake-model",
         )
 
