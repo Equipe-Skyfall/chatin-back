@@ -1,0 +1,91 @@
+from uuid import UUID
+
+from fastapi import APIRouter
+
+from app.ai.adk_provider import AdkProvider
+from app.ai.schemas import FerramentaContexto
+from app.core.exceptions import ConversaNaoEncontradaException
+from app.deps import (
+    AdminUserId,
+    AiProviderDep,
+    ConversaRepo,
+    MateriaRepo,
+    ModuloRepo,
+    ProgressoRepo,
+    QuestionarioRepo,
+    SettingsDep,
+    TemaRepo,
+    VotoRepo,
+    XpRepo,
+)
+from app.models.conversa import TIPO_ADMIN, Conversa
+from app.schemas.chat import ChatMensagemInput, ChatRespostaOut, ConversaOut, MensagemOut
+from app.services import agent_service
+
+router = APIRouter(prefix="/admin/chat", tags=["chat"])
+
+
+@router.post("", response_model=ChatRespostaOut)
+def enviar_mensagem(
+    body: ChatMensagemInput,
+    admin_id: AdminUserId,
+    conversa_repo: ConversaRepo,
+    materia_repo: MateriaRepo,
+    tema_repo: TemaRepo,
+    modulo_repo: ModuloRepo,
+    questionario_repo: QuestionarioRepo,
+    xp_repo: XpRepo,
+    progresso_repo: ProgressoRepo,
+    voto_repo: VotoRepo,
+    ai_provider: AiProviderDep,
+    settings: SettingsDep,
+) -> ChatRespostaOut:
+    if body.conversa_id is not None:
+        conversa = conversa_repo.get(body.conversa_id)
+        if conversa is None or conversa.user_id != admin_id or conversa.tipo != TIPO_ADMIN:
+            raise ConversaNaoEncontradaException(body.conversa_id)
+    else:
+        conversa = Conversa(user_id=admin_id, titulo=body.texto[:200], tipo=TIPO_ADMIN)
+        conversa_repo.add(conversa)
+        conversa_repo.commit()
+        conversa_repo.refresh(conversa)
+
+    ctx = FerramentaContexto(
+        materia_repo=materia_repo,
+        tema_repo=tema_repo,
+        modulo_repo=modulo_repo,
+        questionario_repo=questionario_repo,
+        xp_repo=xp_repo,
+        progresso_repo=progresso_repo,
+        voto_repo=voto_repo,
+        ai_provider=ai_provider,
+        pool_size=settings.QUESTIONARIO_POOL_SIZE,
+        user_id=admin_id,
+        conversa_id=conversa.id,
+    )
+    resposta = agent_service.processar_mensagem(
+        conversa, body.texto, conversa_repo, ctx, ai_provider
+    )
+    return ChatRespostaOut(conversa_id=conversa.id, resposta=resposta)
+
+
+@router.get("", response_model=list[ConversaOut])
+def listar_conversas(admin_id: AdminUserId, conversa_repo: ConversaRepo) -> list[Conversa]:
+    return conversa_repo.list_by_user(admin_id, TIPO_ADMIN)
+
+
+@router.get("/{conversa_id}", response_model=list[MensagemOut])
+def obter_historico(
+    conversa_id: UUID,
+    admin_id: AdminUserId,
+    conversa_repo: ConversaRepo,
+    ai_provider: AiProviderDep,
+) -> list:
+    conversa = conversa_repo.get_with_mensagens(conversa_id)
+    if conversa is None or conversa.user_id != admin_id or conversa.tipo != TIPO_ADMIN:
+        raise ConversaNaoEncontradaException(conversa_id)
+    if isinstance(ai_provider, AdkProvider):
+        historico_adk = ai_provider.obter_historico_sessao(conversa_id)
+        if historico_adk is not None:
+            return historico_adk
+    return conversa.mensagens
