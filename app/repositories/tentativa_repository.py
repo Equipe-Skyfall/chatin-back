@@ -24,10 +24,10 @@ class TentativaRepository(SqlAlchemyRepository[Tentativa]):
         """The student's single open (unfinished) questionário, if any -
         regardless of scope (módulo, tema-review, or personalized), and
         regardless of whether the student ever comes back to finish it.
-        Backs the 1-open-questionário-at-a-time limit: `grading_service`
-        forces resuming this one instead of starting a second one - a
-        student can't get around an abandoned attempt by just starting
-        another."""
+        `grading_service` resumes it only when the quiz being started has the
+        same scope (see `grading_service.mesmo_escopo`); otherwise it is
+        discarded (`descartar`) to make room, since the partial unique index
+        allows one open attempt per student."""
         stmt = (
             select(Tentativa)
             .where(Tentativa.user_id == user_id, Tentativa.status == STATUS_EM_ANDAMENTO)
@@ -35,6 +35,12 @@ class TentativaRepository(SqlAlchemyRepository[Tentativa]):
             .order_by(Tentativa.created_at.desc())
         )
         return self.db.execute(stmt).scalars().first()
+
+    def descartar(self, tentativa: Tentativa) -> None:
+        """Deletes an unfinished attempt (and its sampled questões) and flushes,
+        so the partial unique index is free for the attempt that replaces it."""
+        self.delete(tentativa)
+        self.flush()
 
     def add_tentativa_questoes(self, itens: list[TentativaQuestao]) -> None:
         self.db.add_all(itens)

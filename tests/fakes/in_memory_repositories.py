@@ -250,6 +250,10 @@ class InMemoryTentativaRepository:
                 return tentativa
         return None
 
+    def descartar(self, tentativa: Tentativa) -> None:
+        self.tentativas.pop(tentativa.id, None)
+        self._questoes_por_tentativa.pop(tentativa.id, None)
+
     def add_respostas(self, respostas: list[RespostaTentativa]) -> None:
         self.respostas.extend(respostas)
 

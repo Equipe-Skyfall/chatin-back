@@ -31,15 +31,33 @@ from app.schemas.tentativa import RespostaInput, RespostaResultadoOut
 from app.services import dificuldade_service
 
 
+def mesmo_escopo(
+    tentativa: Tentativa,
+    *,
+    questionario_id: uuid.UUID | None,
+    tema_id: uuid.UUID | None,
+    pratica: bool,
+) -> bool:
+    """Whether an open `tentativa` is the very quiz being asked for: the same
+    módulo questionário (or the same tema review) AND the same kind (graded vs
+    practice). Anything else is a different quiz, and must never be handed
+    back in its place."""
+    return (
+        tentativa.questionario_id == questionario_id
+        and tentativa.tema_id == tema_id
+        and tentativa.pratica == pratica
+    )
+
+
 def questionario_aberto_como_lista(
     tentativa: Tentativa, questionario_repo: QuestionarioRepository
 ) -> tuple[Tentativa, list[Questao]]:
     """Reconstructs the (tentativa, questões) shape `iniciar_tentativa*`
-    returns, from an already-open questionário's fixed sample - used to force
-    resuming it instead of starting a second one (see the 1-open-questionário
-    limit in `iniciar_tentativa_com_pool`). A questionário left open by a
-    student who never came back to finish it still counts - that's the whole
-    point of the limit, not a gap in it."""
+    returns, from an already-open questionário's fixed sample - used to resume
+    it instead of sampling a new one (see `iniciar_tentativa_com_pool`). A
+    questionário left open by a student who never came back to finish it still
+    counts: coming back to the same quiz gives the same questions, so leaving
+    and returning can't be used to re-roll a sample."""
     itens = sorted(tentativa.questoes_selecionadas, key=lambda i: i.ordem)
     questoes = questionario_repo.get_questoes_by_ids([i.questao_id for i in itens])
     ordem_map = {i.questao_id: i.ordem for i in itens}
@@ -59,15 +77,19 @@ def iniciar_tentativa_com_pool(
     pratica: bool = False,
 ) -> tuple[Tentativa, list[Questao]]:
     """Shared by `iniciar_tentativa`, `iniciar_tentativa_tema` and
-    `questionario_personalizado_service` - whichever of the three is asked
-    for, a student is only ever allowed 1 open (unfinished) questionário at a
-    time: if they already have one - any scope, whether they're actively
-    working on it or abandoned it mid-way (see
-    `TentativaRepository.get_questionario_aberto_by_user`) - this forces
-    resuming it instead of sampling a new pool."""
+    `questionario_personalizado_service`. A student has at most 1 open
+    (unfinished) questionário at a time: if the open one is the very quiz being
+    asked for (same scope and kind - see `mesmo_escopo`) it is resumed with its
+    fixed sample; if it is any other quiz it is discarded, and a new sample is
+    drawn for the one being asked for. Leaving a quiz half-done therefore never
+    hands its questions to a different módulo."""
     questionario_aberto = tentativa_repo.get_questionario_aberto_by_user(user_id)
     if questionario_aberto is not None:
-        return questionario_aberto_como_lista(questionario_aberto, questionario_repo)
+        if mesmo_escopo(
+            questionario_aberto, questionario_id=questionario_id, tema_id=tema_id, pratica=pratica
+        ):
+            return questionario_aberto_como_lista(questionario_aberto, questionario_repo)
+        tentativa_repo.descartar(questionario_aberto)
 
     quantidade = min(num_questoes, len(pool_ids))
 
@@ -99,8 +121,10 @@ def iniciar_tentativa_com_pool(
     except IntegrityError:
         tentativa_repo.db.rollback()
         questionario_aberto = tentativa_repo.get_questionario_aberto_by_user(user_id)
-        if questionario_aberto is None:
-            raise  # not actually a concurrent-open-tentativa conflict - re-raise as-is
+        if questionario_aberto is None or not mesmo_escopo(
+            questionario_aberto, questionario_id=questionario_id, tema_id=tema_id, pratica=pratica
+        ):
+            raise  # not a concurrent start of this same quiz - re-raise as-is
         return questionario_aberto_como_lista(questionario_aberto, questionario_repo)
 
     itens = [

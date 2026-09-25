@@ -121,19 +121,6 @@ def gerar_tentativa_personalizada(
     tentativa_repo: TentativaRepository,
     ai_provider: AIProvider,
 ) -> tuple[Tentativa, list[Questao]]:
-    # Checked *before* touching the AI/pool: a student with an open
-    # questionário gets it back immediately, with zero AI cost - generating
-    # (and paying for) new personalized questions only to discard the
-    # response in favor of the open one would defeat the whole point of
-    # capping cost. See `grading_service.iniciar_tentativa_com_pool`, which
-    # this mirrors but can't reuse directly here, since we need to skip
-    # `_garantir_pool_minimo` entirely, not just the sampling step.
-    questionario_aberto = tentativa_repo.get_questionario_aberto_by_user(user_id)
-    if questionario_aberto is not None:
-        return grading_service.questionario_aberto_como_lista(
-            questionario_aberto, questionario_repo
-        )
-
     modulo = modulo_repo.get(modulo_id)
     if modulo is None or not modulo.conteudo:
         raise ConteudoIndisponivelException("O módulo ainda não possui conteúdo gerado.")
@@ -141,6 +128,21 @@ def gerar_tentativa_personalizada(
     questionario = questionario_repo.get_by_modulo(modulo_id)
     if questionario is None:
         raise ConteudoIndisponivelException("O módulo ainda não possui questionário gerado.")
+
+    # Checked *before* touching the AI/pool: a student who already has THIS
+    # exact practice quiz open gets it back immediately, with zero AI cost -
+    # generating (and paying for) new personalized questions only to discard
+    # the response in favor of the open one would defeat the whole point of
+    # capping cost. Any other open quiz (another módulo, a graded attempt, a
+    # tema review) is not resumed here: `grading_service.iniciar_tentativa_com_pool`
+    # discards it once the questions for this módulo are ready.
+    questionario_aberto = tentativa_repo.get_questionario_aberto_by_user(user_id)
+    if questionario_aberto is not None and grading_service.mesmo_escopo(
+        questionario_aberto, questionario_id=questionario.id, tema_id=None, pratica=True
+    ):
+        return grading_service.questionario_aberto_como_lista(
+            questionario_aberto, questionario_repo
+        )
 
     contexto_conversa = _contexto_conversa(user_id, modulo_id, conversa_repo)
     _garantir_pool_minimo(

@@ -211,6 +211,48 @@ def test_tentativa_aberta_evita_chamada_de_ia(questionario_repo, fake_ai_provide
     assert fake_ai_provider.gerar_questionario_calls == 0
 
 
+def test_tentativa_aberta_de_outro_modulo_e_descartada_e_nao_bloqueia_a_geracao(
+    questionario_repo, fake_ai_provider
+):
+    """A quiz left open on módulo A must not be handed back for módulo B: the
+    student gets B's own questions (generating them if B's pool is short), and
+    A's abandoned attempt is discarded."""
+    _, questionario_a, modulo_repo = _setup(questionario_repo, num_questoes_existentes=12)
+    modulo_b_id = uuid.uuid4()
+    modulo_repo.seed(ModuloBuilder().com_id(modulo_b_id).com_conteudo("Conteúdo B.").build())
+    questionario_b, questoes_b, gabarito_b = (
+        QuestionarioBuilder().com_modulo_id(modulo_b_id).com_num_questoes(1).build()
+    )
+    questionario_repo.seed(questionario_b, questoes_b, gabarito_b)
+    tentativa_repo = InMemoryTentativaRepository()
+    conversa_repo = InMemoryConversaRepository()
+
+    def _praticar(modulo_id, pool_minimo):
+        return questionario_personalizado_service.gerar_tentativa_personalizada(
+            modulo_id,
+            "user-1",
+            pool_minimo,
+            5,
+            modulo_repo,
+            questionario_repo,
+            conversa_repo,
+            tentativa_repo,
+            fake_ai_provider,
+        )
+
+    tentativa_a, _ = _praticar(questionario_a.modulo_id, 12)
+    assert fake_ai_provider.gerar_questionario_calls == 0
+
+    tentativa_b, questoes = _praticar(modulo_b_id, 12)  # pool de B tem 1 -> gera as que faltam
+
+    assert tentativa_b.id != tentativa_a.id
+    assert tentativa_b.questionario_id == questionario_b.id
+    assert fake_ai_provider.gerar_questionario_calls == 1
+    ids_b = set(questionario_repo.get_questao_ids_pool(questionario_b.id))
+    assert {q.id for q in questoes} <= ids_b
+    assert list(tentativa_repo.tentativas) == [tentativa_b.id]
+
+
 def test_falha_na_geracao_faz_rollback_sem_deixar_pool_parcial(questionario_repo, fake_ai_provider):
     _, questionario, modulo_repo = _setup(questionario_repo, num_questoes_existentes=3)
     tentativa_repo = InMemoryTentativaRepository()
