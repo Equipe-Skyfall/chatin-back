@@ -6,7 +6,6 @@ import pytest
 from app.core.exceptions import (
     ConteudoIndisponivelException,
     ConversaNaoEncontradaException,
-    ResumoEstudoSemModuloException,
 )
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, TIPO_ALUNO, Conversa, Mensagem
 from app.services import resumo_estudo_service
@@ -108,22 +107,55 @@ def test_agrega_conversas_do_mesmo_modulo(fake_ai_provider):
     assert len(recebido["historico"]) == 2
 
 
-def test_conversa_sem_modulo_e_rejeitada(fake_ai_provider):
+def test_conversa_livre_gera_resumo(fake_ai_provider):
     conversa_repo = InMemoryConversaRepository()
+    resumo_repo = InMemoryResumoEstudoRepository()
+    conversa = _conversa(modulo_id=None, n_mensagens=3)
+    conversa_repo.add(conversa)
+
+    resumo = resumo_estudo_service.gerar_resumo(
+        "user-1",
+        conversa.id,
+        conversa_repo,
+        InMemoryModuloRepository(),
+        resumo_repo,
+        fake_ai_provider,
+    )
+
+    assert fake_ai_provider.gerar_resumo_estudo_calls == 1
+    assert resumo.modulo_id is None
+    assert resumo.conversa_id == conversa.id
+    assert resumo.materia_nome is None
+    assert resumo.tema_titulo is None
+    assert resumo.modulo_titulo is None
+    assert "visao_geral" in resumo.conteudo
+
+
+def test_conversa_livre_faz_upsert_por_conversa(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    resumo_repo = InMemoryResumoEstudoRepository()
     conversa = _conversa(modulo_id=None)
     conversa_repo.add(conversa)
 
-    with pytest.raises(ResumoEstudoSemModuloException):
-        resumo_estudo_service.gerar_resumo(
-            "user-1",
-            conversa.id,
-            conversa_repo,
-            InMemoryModuloRepository(),
-            InMemoryResumoEstudoRepository(),
-            fake_ai_provider,
-        )
+    primeiro = resumo_estudo_service.gerar_resumo(
+        "user-1",
+        conversa.id,
+        conversa_repo,
+        InMemoryModuloRepository(),
+        resumo_repo,
+        fake_ai_provider,
+    )
+    segundo = resumo_estudo_service.gerar_resumo(
+        "user-1",
+        conversa.id,
+        conversa_repo,
+        InMemoryModuloRepository(),
+        resumo_repo,
+        fake_ai_provider,
+    )
 
-    assert fake_ai_provider.gerar_resumo_estudo_calls == 0
+    assert primeiro.id == segundo.id
+    assert len(resumo_repo.resumos) == 1
 
 
 def test_conversa_de_outro_usuario_e_rejeitada(fake_ai_provider):

@@ -35,8 +35,8 @@ class ResumoEstudo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # From the external auth service's JWT `userId` claim (a Prisma cuid()
     # string) - same vocabulary as `Conversa.user_id`.
     user_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    modulo_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("modulos.id", ondelete="CASCADE"), nullable=False
+    modulo_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("modulos.id", ondelete="CASCADE"), nullable=True
     )
     # The session that triggered the latest generation, for traceability - kept
     # nullable so a deleted conversation doesn't take the summary down with it.
