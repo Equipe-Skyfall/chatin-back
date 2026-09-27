@@ -25,10 +25,24 @@ Letra = Literal["A", "B", "C", "D", "E"]
 
 
 @dataclass(frozen=True)
+class ReferenciaFonte:
+    """One web page a grounded search cited. `titulo` is what a student should
+    see (the grounding API only exposes the site's domain, e.g. `ufpel.edu.br`);
+    `origem` is the provider's link, kept for traceability but not shown - for
+    Gemini it is a short-lived Google redirect, not the page's real address."""
+
+    titulo: str
+    origem: str | None
+
+
+@dataclass(frozen=True)
 class FonteEncontrada:
     titulo: str
     origem: str | None  # URL, when the provider's grounding exposes one
     conteudo: str  # extracted/synthesized text to feed into content generation
+    # The pages the search cited. The grounded search yields ONE synthesized
+    # text for all of them, so it is stored once, with these alongside.
+    referencias: tuple[ReferenciaFonte, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -84,7 +98,6 @@ class ResumoEstudoGerado:
     exemplos: list[str]
     duvidas_do_aluno: list[DuvidaResolvida]
     revisao_rapida: list[str]
-    fontes: list[str]
     modelo: str
 
 

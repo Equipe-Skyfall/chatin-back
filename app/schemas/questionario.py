@@ -24,12 +24,11 @@ class QuestaoOut(BaseModel):
 
 
 class TentativaIniciarOut(BaseModel):
-    """Always describes the tentativa actually returned - which, because of
-    the 1-open-questionário-at-a-time limit, may not be the mode/scope the
-    caller just asked for (e.g. `POST .../tentativas` can hand back an open
-    `pratica` tentativa the student never finished). `pratica`/
-    `questionario_id`/`tema_id` let the client render this honestly instead
-    of assuming it always matches the endpoint it called."""
+    """Describes the tentativa returned, which is always the quiz the caller
+    asked for: an open tentativa of the same scope and kind is resumed (same
+    questions), and any other open one is discarded first (see
+    `grading_service.iniciar_tentativa_com_pool`). `pratica`/`questionario_id`/
+    `tema_id` say which quiz it is."""
 
     tentativa_id: UUID
     questoes: list[QuestaoOut]

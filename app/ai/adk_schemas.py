@@ -56,4 +56,3 @@ class ResumoEstudoSchema(BaseModel):
     exemplos: list[str] = Field(default_factory=list)
     duvidas_do_aluno: list[DuvidaResolvidaSchema] = Field(default_factory=list)
     revisao_rapida: list[str] = Field(default_factory=list)
-    fontes: list[str] = Field(default_factory=list)

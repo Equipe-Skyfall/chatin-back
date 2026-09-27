@@ -2,12 +2,15 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import (
     ConteudoIndisponivelException,
     ConversaNaoEncontradaException,
 )
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, TIPO_ALUNO, Conversa, Mensagem
+from app.models.fonte import Fonte
+from app.models.resumo_estudo import ResumoEstudo
 from app.services import resumo_estudo_service
 from tests.builders.materia_builder import MateriaBuilder
 from tests.builders.modulo_builder import ModuloBuilder
@@ -69,6 +72,46 @@ def test_gera_e_persiste_resumo_uma_vez(fake_ai_provider):
         {"termo": "Conceito", "explicacao": "Explicação de teste."}
     ]
     assert list(resumo_repo.resumos.values()) == [resumo]
+
+
+def test_fontes_do_resumo_vem_das_fontes_reais_do_tema(fake_ai_provider):
+    modulo_id = uuid.uuid4()
+    modulo = _modulo(modulo_id)
+    modulo.tema.fontes = [
+        Fonte(
+            tema_id=modulo.tema.id,
+            conteudo_extraido="texto",
+            metadata_={
+                "titulo": "Busca automática: Cálculo 1",
+                "referencias": [
+                    {"titulo": "ufpel.edu.br", "origem": "https://redirect/1"},
+                    {"titulo": "descomplica.com.br", "origem": "https://redirect/2"},
+                ],
+            },
+        )
+    ]
+    conversa_repo, modulo_repo, resumo_repo = _repos(modulo)
+    conversa = _conversa(modulo_id=modulo_id)
+    conversa_repo.add(conversa)
+
+    resumo = resumo_estudo_service.gerar_resumo(
+        "user-1", conversa.id, conversa_repo, modulo_repo, resumo_repo, fake_ai_provider
+    )
+
+    assert resumo.conteudo["fontes"] == ["ufpel.edu.br", "descomplica.com.br"]
+
+
+def test_resumo_de_tema_sem_fontes_citadas_tem_lista_vazia(fake_ai_provider):
+    modulo_id = uuid.uuid4()
+    conversa_repo, modulo_repo, resumo_repo = _repos(_modulo(modulo_id))
+    conversa = _conversa(modulo_id=modulo_id)
+    conversa_repo.add(conversa)
+
+    resumo = resumo_estudo_service.gerar_resumo(
+        "user-1", conversa.id, conversa_repo, modulo_repo, resumo_repo, fake_ai_provider
+    )
+
+    assert resumo.conteudo["fontes"] == []
 
 
 def test_regenerar_faz_upsert_sem_duplicar(fake_ai_provider):
@@ -156,6 +199,84 @@ def test_conversa_livre_faz_upsert_por_conversa(fake_ai_provider):
 
     assert primeiro.id == segundo.id
     assert len(resumo_repo.resumos) == 1
+
+
+def test_conversa_livre_nao_tem_fontes(fake_ai_provider):
+    """Sem tema não há pesquisa de fontes: a lista fica vazia, nunca inventada."""
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(modulo_id=None, n_mensagens=3)
+    conversa_repo.add(conversa)
+
+    resumo = resumo_estudo_service.gerar_resumo(
+        "user-1",
+        conversa.id,
+        conversa_repo,
+        InMemoryModuloRepository(),
+        InMemoryResumoEstudoRepository(),
+        fake_ai_provider,
+    )
+
+    assert resumo.conteudo["fontes"] == []
+
+
+def test_conversa_livre_sem_mensagens_e_rejeitada(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    resumo_repo = InMemoryResumoEstudoRepository()
+    conversa = _conversa(modulo_id=None, n_mensagens=0)
+    conversa_repo.add(conversa)
+
+    with pytest.raises(ConteudoIndisponivelException):
+        resumo_estudo_service.gerar_resumo(
+            "user-1",
+            conversa.id,
+            conversa_repo,
+            InMemoryModuloRepository(),
+            resumo_repo,
+            fake_ai_provider,
+        )
+
+    assert fake_ai_provider.gerar_resumo_estudo_calls == 0
+    assert resumo_repo.resumos == {}
+
+
+def test_conversa_livre_corrida_atualiza_o_resumo_que_venceu(fake_ai_provider):
+    """Duas requisições para a mesma conversa passam pela checagem ao mesmo tempo: o índice
+    único parcial deixa só um INSERT vencer, e o outro atualiza o vencedor em vez de falhar."""
+
+    class _RepoComCorrida(InMemoryResumoEstudoRepository):
+        corrida_pendente = True
+
+        def commit(self) -> None:
+            if self.corrida_pendente:
+                self.corrida_pendente = False
+                # a outra requisição gravou primeiro; o nosso INSERT é desfeito
+                perdedor = next(iter(self.resumos.values()))
+                del self.resumos[perdedor.id]
+                vencedor = ResumoEstudo(user_id=perdedor.user_id, titulo="vencedor")
+                vencedor.conversa_id = perdedor.conversa_id
+                vencedor.conteudo = {"visao_geral": "antigo", "fontes": []}
+                self.add(vencedor)
+                self.id_do_vencedor = vencedor.id
+                raise IntegrityError("INSERT", {}, Exception("duplicate key"))
+
+    conversa_repo = InMemoryConversaRepository()
+    resumo_repo = _RepoComCorrida()
+    conversa = _conversa(modulo_id=None, n_mensagens=2)
+    conversa_repo.add(conversa)
+
+    resumo = resumo_estudo_service.gerar_resumo(
+        "user-1",
+        conversa.id,
+        conversa_repo,
+        InMemoryModuloRepository(),
+        resumo_repo,
+        fake_ai_provider,
+    )
+
+    assert len(resumo_repo.resumos) == 1
+    assert resumo.id == resumo_repo.id_do_vencedor  # atualizou o vencedor, não criou outro
+    assert resumo.titulo == "Conversa livre"
+    assert resumo.conteudo["visao_geral"] != "antigo"
 
 
 def test_conversa_de_outro_usuario_e_rejeitada(fake_ai_provider):

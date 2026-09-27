@@ -36,6 +36,36 @@ def test_gera_conteudo_do_modulo_uma_unica_chamada_de_ia(fake_ai_provider):
     assert modulo.titulo in modulo.conteudo or "Conteúdo de teste" in modulo.conteudo
 
 
+def test_conteudo_recebe_o_texto_uma_vez_e_com_os_nomes_das_fontes(fake_ai_provider):
+    tema = TemaBuilder().pronto().build()
+    tema.fontes = [
+        Fonte(
+            id=uuid.uuid4(),
+            tema_id=tema.id,
+            conteudo_extraido="Mesmo texto.",
+            origem=f"https://redirect/{n}",
+            metadata_={"titulo": dominio},
+            tipo="busca_automatica",
+        )
+        for n, dominio in enumerate(["a.com", "b.com"])
+    ]
+    modulo = ModuloBuilder().com_tema_id(tema.id).com_conteudo(None).build()
+    recebido = []
+    original = fake_ai_provider.gerar_conteudo_modulo
+
+    def _espia(tema_titulo, modulo_titulo, modulo_descricao, conteudos_fontes, *args, **kwargs):
+        recebido.append(conteudos_fontes)
+        return original(
+            tema_titulo, modulo_titulo, modulo_descricao, conteudos_fontes, *args, **kwargs
+        )
+
+    fake_ai_provider.gerar_conteudo_modulo = _espia
+
+    gerar_conteudo_modulo(modulo, tema, InMemoryModuloRepository(), fake_ai_provider)
+
+    assert recebido == [["Fontes consultadas: a.com, b.com\n\nMesmo texto."]]
+
+
 def test_tema_sem_fontes_levanta_excecao(fake_ai_provider):
     tema = TemaBuilder().pronto().build()
     tema.fontes = []

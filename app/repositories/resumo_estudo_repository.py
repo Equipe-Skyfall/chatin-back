@@ -22,9 +22,12 @@ class ResumoEstudoRepository(SqlAlchemyRepository[ResumoEstudo]):
         return self.db.execute(stmt).scalar_one_or_none()
 
     def get_by_user_and_conversa(self, user_id: str, conversa_id: uuid.UUID) -> ResumoEstudo | None:
-        """Key for free-conversation summaries (no module): at most one per (user, conversa)."""
+        """Key for free-conversation summaries (no módulo): at most one per (user, conversa) -
+        same predicate as the partial unique index `uq_resumos_estudo_user_conversa_livre`."""
         stmt = select(ResumoEstudo).where(
-            ResumoEstudo.user_id == user_id, ResumoEstudo.conversa_id == conversa_id
+            ResumoEstudo.user_id == user_id,
+            ResumoEstudo.conversa_id == conversa_id,
+            ResumoEstudo.modulo_id.is_(None),
         )
         return self.db.execute(stmt).scalar_one_or_none()
 

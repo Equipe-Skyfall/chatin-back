@@ -13,6 +13,7 @@ from app.core.exceptions import (
 from app.models.modulo import STATUS_ERRO, Modulo
 from app.models.tema import Tema
 from app.repositories.modulo_repository import ModuloRepository
+from app.services.fonte_pipeline import conteudos_para_geracao
 
 
 def gerar_conteudo_modulo(
@@ -39,7 +40,7 @@ def gerar_conteudo_modulo(
             tema.titulo,
             modulo.titulo,
             modulo.descricao,
-            [f.conteudo_extraido for f in tema.fontes],
+            conteudos_para_geracao(tema.fontes),
             tema.direcionamento,
             conteudo_ja_coberto,
             instrucoes_regeneracao,

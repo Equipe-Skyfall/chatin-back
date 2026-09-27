@@ -38,7 +38,7 @@ from app.repositories.modulo_repository import ModuloRepository
 from app.repositories.questionario_repository import QuestionarioRepository
 from app.repositories.tema_repository import TemaRepository
 from app.services.conteudo_modulo_pipeline import gerar_conteudo_modulo
-from app.services.fonte_pipeline import buscar_fontes_tema
+from app.services.fonte_pipeline import buscar_fontes_tema, conteudos_para_geracao
 from app.services.questionario_pipeline import gerar_questionario_modulo
 
 logger = logging.getLogger(__name__)
@@ -341,7 +341,7 @@ def dividir_tema_em_modulos(
     plano = ai_provider.planejar_modulos(
         tema.titulo,
         tema.descricao,
-        [f.conteudo_extraido for f in tema.fontes],
+        conteudos_para_geracao(tema.fontes),
         max_modulos,
         tema.direcionamento,
     )

@@ -13,6 +13,8 @@ demand via `resumo_pdf_service`.
 
 import uuid
 
+from sqlalchemy.exc import IntegrityError
+
 from app.ai.base import AIProvider
 from app.ai.schemas import MensagemAgente, ResumoEstudoGerado
 from app.core.exceptions import (
@@ -20,11 +22,12 @@ from app.core.exceptions import (
     ConversaNaoEncontradaException,
     ModuloNaoEncontradoException,
 )
-from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, TIPO_ALUNO
+from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, TIPO_ALUNO, Conversa
 from app.models.resumo_estudo import ResumoEstudo
 from app.repositories.conversa_repository import ConversaRepository
 from app.repositories.modulo_repository import ModuloRepository
 from app.repositories.resumo_estudo_repository import ResumoEstudoRepository
+from app.services.fonte_pipeline import nomes_das_fontes
 
 _CONTEXTO_CONVERSA_MAX_CHARS = 6000
 
@@ -61,12 +64,12 @@ def _historico_modulo(
     return _mensagens_para_historico(mensagens)
 
 
-def _historico_conversa(conversa: ResumoEstudo | object) -> list[MensagemAgente]:
+def _historico_conversa(conversa: Conversa) -> list[MensagemAgente]:
     """History from a single conversation (already loaded with messages)."""
     return _mensagens_para_historico(conversa.mensagens)
 
 
-def _serializar(gerado: ResumoEstudoGerado) -> dict:
+def _serializar(gerado: ResumoEstudoGerado, fontes: list[str]) -> dict:
     return {
         "visao_geral": gerado.visao_geral,
         "conceitos_chave": [
@@ -78,7 +81,7 @@ def _serializar(gerado: ResumoEstudoGerado) -> dict:
             {"pergunta": d.pergunta, "resposta": d.resposta} for d in gerado.duvidas_do_aluno
         ],
         "revisao_rapida": list(gerado.revisao_rapida),
-        "fontes": list(gerado.fontes),
+        "fontes": fontes,
     }
 
 
@@ -139,19 +142,39 @@ def _gerar_resumo_modulo(
     resumo.materia_nome = materia.nome if materia is not None else None
     resumo.tema_titulo = tema.titulo if tema is not None else None
     resumo.modulo_titulo = modulo.titulo
-    resumo.conteudo = _serializar(gerado)
+    # The sources are the pages the tema's search actually cited, not something
+    # the model is asked to recall - with none in its prompt it invented
+    # placeholders ("Fontes 1" ... "Fontes 5").
+    resumo.conteudo = _serializar(gerado, nomes_das_fontes(tema.fontes) if tema else [])
     resumo.modelo_ia = gerado.modelo
     resumo_repo.commit()
     resumo_repo.refresh(resumo)
     return resumo
 
 
+def _preencher_resumo_livre(
+    resumo: ResumoEstudo, conversa: Conversa, titulo: str, gerado: ResumoEstudoGerado
+) -> None:
+    resumo.conversa_id = conversa.id
+    resumo.titulo = titulo
+    resumo.materia_nome = None
+    resumo.tema_titulo = None
+    resumo.modulo_titulo = None
+    # A free conversation has no tema, so there are no searched sources to cite.
+    resumo.conteudo = _serializar(gerado, [])
+    resumo.modelo_ia = gerado.modelo
+
+
 def _gerar_resumo_livre(
-    conversa,
+    conversa: Conversa,
     resumo_repo: ResumoEstudoRepository,
     ai_provider: AIProvider,
 ) -> ResumoEstudo:
     historico = _historico_conversa(conversa)
+    if not historico:
+        raise ConteudoIndisponivelException(
+            "A conversa ainda não tem mensagens - não há o que resumir."
+        )
 
     gerado = ai_provider.gerar_resumo_estudo(
         historico,
@@ -167,14 +190,19 @@ def _gerar_resumo_livre(
     if resumo is None:
         resumo = ResumoEstudo(user_id=conversa.user_id, titulo=titulo)
         resumo_repo.add(resumo)
+    _preencher_resumo_livre(resumo, conversa, titulo, gerado)
 
-    resumo.conversa_id = conversa.id
-    resumo.titulo = titulo
-    resumo.materia_nome = None
-    resumo.tema_titulo = None
-    resumo.modulo_titulo = None
-    resumo.conteudo = _serializar(gerado)
-    resumo.modelo_ia = gerado.modelo
-    resumo_repo.commit()
+    try:
+        resumo_repo.commit()
+    except IntegrityError:
+        # Two requests for the same conversation raced past the lookup above; the partial
+        # unique index (user_id, conversa_id WHERE modulo_id IS NULL) let only one insert
+        # win. Update that one instead of failing the other request.
+        resumo_repo.db.rollback()
+        resumo = resumo_repo.get_by_user_and_conversa(conversa.user_id, conversa.id)
+        if resumo is None:
+            raise
+        _preencher_resumo_livre(resumo, conversa, titulo, gerado)
+        resumo_repo.commit()
     resumo_repo.refresh(resumo)
     return resumo

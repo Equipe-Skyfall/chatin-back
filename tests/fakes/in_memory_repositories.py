@@ -250,6 +250,10 @@ class InMemoryTentativaRepository:
                 return tentativa
         return None
 
+    def descartar(self, tentativa: Tentativa) -> None:
+        self.tentativas.pop(tentativa.id, None)
+        self._questoes_por_tentativa.pop(tentativa.id, None)
+
     def add_respostas(self, respostas: list[RespostaTentativa]) -> None:
         self.respostas.extend(respostas)
 
@@ -366,7 +370,11 @@ class InMemoryResumoEstudoRepository:
         self, user_id: str, conversa_id: uuid.UUID
     ) -> ResumoEstudo | None:
         for resumo in self.resumos.values():
-            if resumo.user_id == user_id and resumo.conversa_id == conversa_id:
+            if (
+                resumo.user_id == user_id
+                and resumo.conversa_id == conversa_id
+                and resumo.modulo_id is None
+            ):
                 return resumo
         return None
 

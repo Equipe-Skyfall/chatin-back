@@ -29,11 +29,14 @@ class ModuloRepository(SqlAlchemyRepository[Modulo]):
     def get_with_tema_e_materia(self, modulo_id: uuid.UUID) -> Modulo | None:
         """Loads the módulo together with its tema and that tema's matéria, so
         callers (e.g. `resumo_estudo_service`) can build the study summary's
-        header without triggering lazy loads."""
+        header and its list of sources without triggering lazy loads."""
         stmt = (
             select(Modulo)
             .where(Modulo.id == modulo_id)
-            .options(selectinload(Modulo.tema).selectinload(Tema.materia))
+            .options(
+                selectinload(Modulo.tema).selectinload(Tema.materia),
+                selectinload(Modulo.tema).selectinload(Tema.fontes),
+            )
         )
         return self.db.execute(stmt).scalar_one_or_none()
 
