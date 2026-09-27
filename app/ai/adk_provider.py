@@ -350,7 +350,7 @@ class AdkProvider(AIProvider):
         historico: list[MensagemAgente],
         materia_nome: str | None,
         tema_titulo: str | None,
-        modulo_titulo: str,
+        modulo_titulo: str | None,
         conteudo_modulo: str | None,
     ) -> ResumoEstudoGerado:
         conversa_texto = "\n".join(m.conteudo for m in historico if m.conteudo) or None

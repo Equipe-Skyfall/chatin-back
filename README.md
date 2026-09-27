@@ -274,7 +274,7 @@ Um resumo de estudo por **módulo** por aluno (template estruturado + export em 
 
 | Método | Rota | Descrição |
 |---|---|---|
-| `POST` | `/resumos` | Gera/regera o resumo de estudo do módulo da conversa (`{"conversa_id": "..."}`). Upsert por (`user_id`, `modulo_id`). A conversa precisa estar ligada a um módulo |
+| `POST` | `/resumos` | Gera/regera o resumo de estudo da conversa (`{"conversa_id": "..."}`). Conversa **com módulo**: um resumo por (`user_id`, `modulo_id`), feito do conteúdo do módulo. Conversa **livre** (sem módulo): um resumo por (`user_id`, `conversa_id`), feito só da conversa, com `modulo_id = null` e `fontes = []`; a conversa precisa ter mensagens |
 | `GET` | `/resumos` | Lista os resumos **do próprio usuário** (filtrado pelo JWT), paginado: `limit` (1–100, padrão 20), `offset`, e opcional `materia_id` |
 | `GET` | `/resumos/{id}` | Detalhe de um resumo (só do dono) |
 | `GET` | `/resumos/{id}/pdf` | PDF gerado on-demand a partir do template salvo (só do dono) |

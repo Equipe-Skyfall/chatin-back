@@ -366,6 +366,18 @@ class InMemoryResumoEstudoRepository:
                 return resumo
         return None
 
+    def get_by_user_and_conversa(
+        self, user_id: str, conversa_id: uuid.UUID
+    ) -> ResumoEstudo | None:
+        for resumo in self.resumos.values():
+            if (
+                resumo.user_id == user_id
+                and resumo.conversa_id == conversa_id
+                and resumo.modulo_id is None
+            ):
+                return resumo
+        return None
+
     def list_by_user(
         self, user_id: str, limit: int, offset: int, materia_id: uuid.UUID | None = None
     ) -> list[ResumoEstudo]:
