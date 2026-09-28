@@ -216,12 +216,11 @@ def test_iniciar_tentativa_duas_vezes_sem_concluir_retoma_a_mesma(
     assert len(tentativa_repo.tentativas) == 1
 
 
-def test_iniciar_tentativa_tema_retoma_tentativa_de_modulo_em_andamento(
+def test_iniciar_tentativa_tema_descarta_tentativa_de_modulo_em_andamento(
     questionario_repo, tentativa_repo
 ):
-    """The 1-open-questionário limit is global - starting a different kind
-    of quiz (tema review) while a módulo attempt is open resumes that módulo
-    attempt instead of starting a second one."""
+    """A tema review is a different quiz from an open módulo attempt: the
+    módulo attempt is discarded and the student gets the review they asked for."""
     questionario, _, _ = _seed_pool(questionario_repo, num_questoes=12)
     tema_id = uuid.uuid4()
     questionario_repo.seed_pool_tema(
@@ -236,9 +235,49 @@ def test_iniciar_tentativa_tema_retoma_tentativa_de_modulo_em_andamento(
         tema_id, user_id, 5, questionario_repo, tentativa_repo
     )
 
-    assert tentativa_tema.id == tentativa_modulo.id
-    assert tentativa_tema.questionario_id == questionario.id  # resumed, not tema-scoped
-    assert len(tentativa_repo.tentativas) == 1
+    assert tentativa_tema.id != tentativa_modulo.id
+    assert tentativa_tema.tema_id == tema_id
+    assert tentativa_tema.questionario_id is None
+    assert list(tentativa_repo.tentativas) == [tentativa_tema.id]
+
+
+def test_iniciar_tentativa_tema_duas_vezes_retoma_a_mesma(questionario_repo, tentativa_repo):
+    questionario, _, _ = _seed_pool(questionario_repo, num_questoes=12)
+    tema_id = uuid.uuid4()
+    questionario_repo.seed_pool_tema(
+        tema_id, questionario_repo.get_questao_ids_pool(questionario.id)
+    )
+    user_id = uuid.uuid4()
+
+    primeira, questoes_1 = grading_service.iniciar_tentativa_tema(
+        tema_id, user_id, 5, questionario_repo, tentativa_repo
+    )
+    segunda, questoes_2 = grading_service.iniciar_tentativa_tema(
+        tema_id, user_id, 5, questionario_repo, tentativa_repo
+    )
+
+    assert segunda.id == primeira.id
+    assert [q.id for q in questoes_2] == [q.id for q in questoes_1]
+
+
+def test_iniciar_tentativa_tema_de_outro_tema_descarta_a_aberta(questionario_repo, tentativa_repo):
+    questionario, _, _ = _seed_pool(questionario_repo, num_questoes=12)
+    pool = questionario_repo.get_questao_ids_pool(questionario.id)
+    tema_a, tema_b = uuid.uuid4(), uuid.uuid4()
+    questionario_repo.seed_pool_tema(tema_a, pool)
+    questionario_repo.seed_pool_tema(tema_b, pool)
+    user_id = uuid.uuid4()
+
+    revisao_a, _ = grading_service.iniciar_tentativa_tema(
+        tema_a, user_id, 5, questionario_repo, tentativa_repo
+    )
+    revisao_b, _ = grading_service.iniciar_tentativa_tema(
+        tema_b, user_id, 5, questionario_repo, tentativa_repo
+    )
+
+    assert revisao_b.id != revisao_a.id
+    assert revisao_b.tema_id == tema_b
+    assert list(tentativa_repo.tentativas) == [revisao_b.id]
 
 
 def test_iniciar_tentativa_exclui_questoes_personalizadas_da_amostra(
@@ -275,13 +314,12 @@ def test_iniciar_tentativa_tema_exclui_questoes_personalizadas(questionario_repo
     assert questoes[0].id not in {q.id for q in selecionadas}
 
 
-def test_iniciar_tentativa_resume_honesto_quando_ha_pratica_aberta(
+def test_iniciar_tentativa_valendo_nota_descarta_pratica_aberta_do_mesmo_modulo(
     questionario_repo, tentativa_repo
 ):
-    """Se o aluno tem uma tentativa `pratica` aberta e chama o endpoint
-    valendo nota, a tentativa devolvida é honestamente a `pratica` aberta
-    (o cliente confere `pratica`/`questionario_id` na resposta) - o backend
-    nunca finge que virou uma tentativa valendo nota."""
+    """Praticar e Realizar são quizzes diferentes: pedir o valendo nota com uma
+    prática aberta descarta a prática e devolve uma tentativa valendo nota de
+    verdade - o backend nunca devolve a prática no lugar dela."""
     questionario, _, _ = _seed_pool(questionario_repo, num_questoes=12)
     user_id = uuid.uuid4()
 
@@ -296,12 +334,104 @@ def test_iniciar_tentativa_resume_honesto_quando_ha_pratica_aberta(
         pratica=True,
     )
 
-    tentativa_retomada, _ = grading_service.iniciar_tentativa(
+    tentativa_nota, _ = grading_service.iniciar_tentativa(
         questionario.id, user_id, 5, questionario_repo, tentativa_repo
     )
 
-    assert tentativa_retomada.id == tentativa_pratica.id
-    assert tentativa_retomada.pratica is True  # continua sendo prática, não vira valendo nota
+    assert tentativa_nota.id != tentativa_pratica.id
+    assert tentativa_nota.pratica is False
+    assert list(tentativa_repo.tentativas) == [tentativa_nota.id]
+
+
+def test_iniciar_tentativa_pratica_duas_vezes_retoma_a_mesma(questionario_repo, tentativa_repo):
+    questionario, _, _ = _seed_pool(questionario_repo, num_questoes=12)
+    user_id = uuid.uuid4()
+    pool = questionario_repo.get_questao_ids_pool(questionario.id)
+
+    def _praticar():
+        return grading_service.iniciar_tentativa_com_pool(
+            pool,
+            user_id,
+            5,
+            questionario_repo,
+            tentativa_repo,
+            questionario_id=questionario.id,
+            tema_id=None,
+            pratica=True,
+        )
+
+    primeira, questoes_1 = _praticar()
+    segunda, questoes_2 = _praticar()
+
+    assert segunda.id == primeira.id
+    assert [q.id for q in questoes_2] == [q.id for q in questoes_1]
+
+
+def test_iniciar_tentativa_em_outro_modulo_nao_devolve_as_questoes_do_primeiro(
+    questionario_repo, tentativa_repo
+):
+    """O bug original: deixar um quiz pela metade fazia todo módulo seguinte
+    devolver as questões dele (ex.: cálculo dentro de História)."""
+    questionario_a, _, _ = _seed_pool(questionario_repo, num_questoes=12)
+    questionario_b, _, _ = _seed_pool(questionario_repo, num_questoes=12)
+    ids_b = set(questionario_repo.get_questao_ids_pool(questionario_b.id))
+    user_id = uuid.uuid4()
+
+    tentativa_a, _ = grading_service.iniciar_tentativa(
+        questionario_a.id, user_id, 5, questionario_repo, tentativa_repo
+    )
+    tentativa_b, questoes_b = grading_service.iniciar_tentativa(
+        questionario_b.id, user_id, 5, questionario_repo, tentativa_repo
+    )
+
+    assert tentativa_b.id != tentativa_a.id
+    assert tentativa_b.questionario_id == questionario_b.id
+    assert {q.id for q in questoes_b} <= ids_b
+    assert list(tentativa_repo.tentativas) == [tentativa_b.id]
+
+
+def test_praticar_em_outro_modulo_descarta_a_pratica_aberta(questionario_repo, tentativa_repo):
+    questionario_a, _, _ = _seed_pool(questionario_repo, num_questoes=12)
+    questionario_b, _, _ = _seed_pool(questionario_repo, num_questoes=12)
+    user_id = uuid.uuid4()
+
+    def _praticar(questionario):
+        return grading_service.iniciar_tentativa_com_pool(
+            questionario_repo.get_questao_ids_pool(questionario.id),
+            user_id,
+            5,
+            questionario_repo,
+            tentativa_repo,
+            questionario_id=questionario.id,
+            tema_id=None,
+            pratica=True,
+        )
+
+    pratica_a, _ = _praticar(questionario_a)
+    pratica_b, _ = _praticar(questionario_b)
+
+    assert pratica_b.id != pratica_a.id
+    assert pratica_b.questionario_id == questionario_b.id
+    assert list(tentativa_repo.tentativas) == [pratica_b.id]
+
+
+def test_descartar_a_tentativa_de_um_aluno_nao_mexe_na_de_outro(questionario_repo, tentativa_repo):
+    questionario_a, _, _ = _seed_pool(questionario_repo, num_questoes=12)
+    questionario_b, _, _ = _seed_pool(questionario_repo, num_questoes=12)
+    aluno_1, aluno_2 = uuid.uuid4(), uuid.uuid4()
+
+    tentativa_do_2, _ = grading_service.iniciar_tentativa(
+        questionario_a.id, aluno_2, 5, questionario_repo, tentativa_repo
+    )
+    grading_service.iniciar_tentativa(
+        questionario_a.id, aluno_1, 5, questionario_repo, tentativa_repo
+    )
+    grading_service.iniciar_tentativa(
+        questionario_b.id, aluno_1, 5, questionario_repo, tentativa_repo
+    )  # descarta a do aluno 1 em A
+
+    assert tentativa_repo.get_questionario_aberto_by_user(aluno_2).id == tentativa_do_2.id
+    assert len(tentativa_repo.tentativas) == 2
 
 
 class _RepoComJanelaDeCorrida:

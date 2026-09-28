@@ -111,7 +111,7 @@ class AIProvider(ABC):
         historico: list[MensagemAgente],
         materia_nome: str | None,
         tema_titulo: str | None,
-        modulo_titulo: str,
+        modulo_titulo: str | None,
         conteudo_modulo: str | None,
     ) -> ResumoEstudoGerado:
         """Builds a student's study summary for one módulo from the módulo's

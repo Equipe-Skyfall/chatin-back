@@ -40,7 +40,7 @@ class ResumoEstudoOut(BaseModel):
     model_config = {"from_attributes": True}
 
     id: UUID
-    modulo_id: UUID
+    modulo_id: UUID | None = None
     conversa_id: UUID | None
     titulo: str
     materia_nome: str | None
@@ -59,7 +59,7 @@ class ResumoEstudoListOut(BaseModel):
     model_config = {"from_attributes": True}
 
     id: UUID
-    modulo_id: UUID
+    modulo_id: UUID | None = None
     titulo: str
     materia_nome: str | None
     tema_titulo: str | None

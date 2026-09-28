@@ -178,7 +178,7 @@ class FakeAIProvider(AIProvider):
         historico: list[MensagemAgente],
         materia_nome: str | None,
         tema_titulo: str | None,
-        modulo_titulo: str,
+        modulo_titulo: str | None,
         conteudo_modulo: str | None,
     ) -> ResumoEstudoGerado:
         self.gerar_resumo_estudo_calls += 1

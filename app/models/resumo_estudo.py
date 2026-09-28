@@ -1,7 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -30,13 +30,23 @@ class ResumoEstudo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "resumos_estudo"
     __table_args__ = (
         UniqueConstraint("user_id", "modulo_id", name="uq_resumos_estudo_user_modulo"),
+        # The constraint above does nothing for free-conversation summaries
+        # (`modulo_id IS NULL`, and NULLs never collide), so they get their own key:
+        # at most one per (user, conversa).
+        Index(
+            "uq_resumos_estudo_user_conversa_livre",
+            "user_id",
+            "conversa_id",
+            unique=True,
+            postgresql_where=text("modulo_id IS NULL"),
+        ),
     )
 
     # From the external auth service's JWT `userId` claim (a Prisma cuid()
     # string) - same vocabulary as `Conversa.user_id`.
     user_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    modulo_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("modulos.id", ondelete="CASCADE"), nullable=False
+    modulo_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("modulos.id", ondelete="CASCADE"), nullable=True
     )
     # The session that triggered the latest generation, for traceability - kept
     # nullable so a deleted conversation doesn't take the summary down with it.
