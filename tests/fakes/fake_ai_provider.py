@@ -7,12 +7,14 @@ from app.ai.schemas import (
     ErroQuestao,
     FerramentaContexto,
     FonteEncontrada,
+    FonteWeb,
     MensagemAgente,
     ModuloPlanejado,
     PlanoModulos,
     QuestaoGerada,
     QuestionarioGerado,
     ReferenciaFonte,
+    ResultadoBuscaWeb,
     ResumoEstudoGerado,
 )
 
@@ -54,6 +56,30 @@ class FakeAIProvider(AIProvider):
         self.gerar_feedback_erros_calls = 0
         self.erros_recebidos: list[list[ErroQuestao]] = []
         self.falhar_gerar_feedback_erros = False
+        self.pesquisar_web_calls = 0
+        self.falhar_pesquisar_web = False
+        self.resultado_pesquisa_web: ResultadoBuscaWeb | None = None
+        # When set, `conversar_com_agente_aluno` calls the student agent's
+        # `buscar_fontes_web` tool with this query, like the model would.
+        self.consulta_web_do_agente: str | None = None
+
+    def pesquisar_web(self, consulta: str) -> ResultadoBuscaWeb:
+        self.pesquisar_web_calls += 1
+        if self.falhar_pesquisar_web:
+            raise RuntimeError("falha simulada na pesquisa web")
+        if self.resultado_pesquisa_web is not None:
+            return self.resultado_pesquisa_web
+        return ResultadoBuscaWeb(
+            resumo=f"Resumo web sobre {consulta}",
+            fontes=[
+                FonteWeb(
+                    titulo="Exemplo",
+                    url="https://example.org/a",
+                    dominio="example.org",
+                    consulta=consulta,
+                )
+            ],
+        )
 
     def buscar_fontes(
         self, tema_titulo: str, tema_descricao: str | None, direcionamento: str | None = None
@@ -162,6 +188,11 @@ class FakeAIProvider(AIProvider):
         self.ctx_recebido = ctx
         if self.falhar_conversar_com_agente_aluno:
             raise RuntimeError("falha simulada na conversa com o agente do aluno")
+        if self.consulta_web_do_agente is not None:
+            from app.ai.adk_tools import construir_tools_aluno
+
+            tools = {t.__name__: t for t in construir_tools_aluno(ctx)}
+            tools["buscar_fontes_web"](self.consulta_web_do_agente)
         if self.resposta_agente_aluno_fixa is not None:
             return self.resposta_agente_aluno_fixa
         pergunta = mensagens[-1].conteudo if mensagens else ""

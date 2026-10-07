@@ -19,12 +19,19 @@ model. A closure has no such leak: `ctx` is a free variable, never a
 parameter, so it's structurally impossible for the model to see or set it.
 """
 
+import logging
 from collections.abc import Callable
 
 from app.ai.adk_schemas import AlternativaSchema, Letra
 from app.ai.schemas import FerramentaContexto
 from app.services.agent_tools import executar_ferramenta
 from app.services.agent_tools_aluno import executar_ferramenta_aluno
+
+logger = logging.getLogger(__name__)
+
+# Each web search is an extra grounded model call (cost, latency) - cap it per
+# student turn; the agent's own `max_llm_calls` is the hard ceiling above this.
+MAX_BUSCAS_WEB_POR_TURNO = 2
 
 
 def construir_tools(ctx: FerramentaContexto) -> list[Callable]:
@@ -359,4 +366,28 @@ def construir_tools_aluno(ctx: FerramentaContexto) -> list[Callable]:
             ctx,
         )
 
-    return [buscar_conteudo, meu_desempenho, criar_minha_trilha]
+    def buscar_fontes_web(consulta: str) -> str:
+        """Pesquisa na web sobre um assunto de estudo e devolve um resumo
+        embasado em páginas reais. Os links ficam disponíveis para o aluno
+        automaticamente - use o resumo para fundamentar a resposta.
+
+        Args:
+            consulta: O que pesquisar (ex.: 'causas da Revolução Francesa').
+        """
+        if len(ctx.fontes_web_consultas) >= MAX_BUSCAS_WEB_POR_TURNO:
+            return "Limite de buscas desta resposta atingido - responda com o que já encontrou."
+        ctx.fontes_web_consultas.append(consulta)
+        try:
+            resultado = ctx.ai_provider.pesquisar_web(consulta)
+        except Exception:  # noqa: BLE001 - RNF6: a busca nunca derruba a resposta
+            logger.warning(
+                "Falha na busca web para %r; respondendo sem fontes.", consulta, exc_info=True
+            )
+            return "A busca na web está indisponível agora - responda sem fontes externas."
+        ja_vistas = {f.url for f in ctx.fontes_web}
+        ctx.fontes_web.extend(f for f in resultado.fontes if f.url not in ja_vistas)
+        if not resultado.resumo:
+            return "Nenhum resultado encontrado - responda sem fontes externas."
+        return resultado.resumo
+
+    return [buscar_conteudo, meu_desempenho, criar_minha_trilha, buscar_fontes_web]

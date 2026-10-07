@@ -36,6 +36,28 @@ class ReferenciaFonte:
 
 
 @dataclass(frozen=True)
+class FonteWeb:
+    """One web page the student chat's grounded search cited, shown to the
+    student as a link under the answer. `url` is the page's real address
+    (the Google redirect is resolved before saving, falling back to the
+    redirect itself); `consulta` is the search that surfaced it."""
+
+    titulo: str
+    url: str
+    dominio: str | None
+    consulta: str
+
+
+@dataclass(frozen=True)
+class ResultadoBuscaWeb:
+    """What `AIProvider.pesquisar_web` hands back to the agent's tool: a
+    synthesized answer to ground the reply in, plus the pages it cited."""
+
+    resumo: str
+    fontes: list[FonteWeb] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class FonteEncontrada:
     titulo: str
     origem: str | None  # URL, when the provider's grounding exposes one
@@ -197,6 +219,10 @@ class FerramentaContexto:
     user_id: str
     conversa_id: uuid.UUID
     background_tasks: BackgroundTasks | None = None
+    # Filled by the student agent's `buscar_fontes_web` tool during a turn;
+    # `chat_aluno_service.enviar_mensagem` persists it with the reply.
+    fontes_web: list[FonteWeb] = field(default_factory=list)
+    fontes_web_consultas: list[str] = field(default_factory=list)
     # Output, not input: `criar_minha_trilha` (agent_tools_aluno.py) writes
     # these when it actually creates something, so the router can hand the
     # ids back to the frontend (`ChatRespostaOut`) without the client having
@@ -221,3 +247,5 @@ class MensagemHistorico:
     conteudo: str | None
     chamadas_ferramentas: list[dict[str, Any]] | None
     created_at: datetime
+    fontes: list[dict[str, Any]] | None = None
+    pergunta_id: uuid.UUID | None = None

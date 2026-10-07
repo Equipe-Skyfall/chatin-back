@@ -6,12 +6,13 @@ aluno`) - see `app/ai/base.py`.
 """
 
 import logging
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 
 from app.ai.base import AIProvider
-from app.ai.schemas import FerramentaContexto, MensagemAgente
+from app.ai.schemas import FerramentaContexto, MensagemAgente, MensagemHistorico
 from app.core.exceptions import ConversaOcupadaException, ProvedorIAIndisponivelException
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, Conversa, Mensagem
 from app.repositories.conversa_repository import ConversaRepository
@@ -40,15 +41,18 @@ def enviar_mensagem(
     `FerramentaContexto` (see `routers/chat_aluno.py` for how it's built) -
     `ctx.conversa_id` must equal `conversa.id`."""
 
-    def _salvar(papel: str, conteudo: str) -> None:
+    def _salvar(papel: str, conteudo: str, **extras) -> Mensagem:
         ordem = conversa_repo.proxima_ordem(conversa.id)
-        conversa_repo.add_mensagem(
-            Mensagem(conversa_id=conversa.id, papel=papel, conteudo=conteudo, ordem=ordem)
+        mensagem = conversa_repo.add_mensagem(
+            Mensagem(
+                conversa_id=conversa.id, papel=papel, conteudo=conteudo, ordem=ordem, **extras
+            )
         )
         conversa_repo.commit()
+        return mensagem
 
     try:
-        _salvar(PAPEL_USUARIO, texto_usuario)
+        pergunta = _salvar(PAPEL_USUARIO, texto_usuario)
     except IntegrityError as exc:
         # Two simultaneous turns on the same conversa both computed the same
         # `ordem` - the unique (conversa_id, ordem) constraint let only one
@@ -66,10 +70,37 @@ def enviar_mensagem(
             conteudo_modulo = modulo.conteudo
 
     resposta = ai_provider.conversar_com_agente_aluno(historico, conteudo_modulo, ctx)
-    _salvar(PAPEL_ASSISTENTE, resposta)
+    # The sources the agent's `buscar_fontes_web` tool collected this turn
+    # (US-10) - stored with the reply, tied to the question that prompted them.
+    fontes = [asdict(f) for f in ctx.fontes_web] or None
+    _salvar(
+        PAPEL_ASSISTENTE,
+        resposta,
+        fontes=fontes,
+        pergunta_id=pergunta.id if fontes else None,
+    )
     conversa_repo.tocar(conversa.id)
     conversa_repo.commit()
     return resposta
+
+
+def anexar_fontes_ao_historico(
+    historico: list[MensagemHistorico], mensagens: list[Mensagem]
+) -> list[MensagemHistorico]:
+    """The ADK session (where `AI_PROVIDER=adk` reads history from) knows
+    nothing about the sources shown under a reply - they live on the
+    `mensagens` rows. Re-attaches them by matching the assistant text, which
+    is the same string in both places."""
+    por_conteudo = {
+        m.conteudo: m for m in mensagens if m.papel == PAPEL_ASSISTENTE and m.fontes
+    }
+    resultado = []
+    for item in historico:
+        origem = por_conteudo.get(item.conteudo) if item.papel == PAPEL_ASSISTENTE else None
+        if origem is not None:
+            item = replace(item, fontes=origem.fontes, pergunta_id=origem.pergunta_id)
+        resultado.append(item)
+    return resultado
 
 
 def obter_ou_gerar_resumo(

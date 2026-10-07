@@ -160,6 +160,15 @@ def prompt_planejar_modulos(
     )
 
 
+def prompt_pesquisa_web(consulta: str) -> str:
+    return (
+        f"Pesquise na web sobre: {consulta}\n\n"
+        "Responda em português, em no máximo 3 parágrafos curtos, só com informações "
+        "confirmadas pelas páginas encontradas. Prefira fontes educacionais, institucionais "
+        "ou de referência (universidades, órgãos públicos, enciclopédias)."
+    )
+
+
 def prompt_agente_aluno_system(conteudo_modulo: str | None) -> str:
     if conteudo_modulo:
         contexto = (
@@ -176,7 +185,13 @@ def prompt_agente_aluno_system(conteudo_modulo: str | None) -> str:
         "a se preparar para o ENEM. Responda às perguntas do aluno de forma clara e objetiva, em "
         "português, com exemplos quando ajudar a fixar o conceito."
         f"{contexto}"
-        "\n\nVocê tem três ferramentas, use-as com bom senso, sem forçar:\n"
+        "\n\nVocê tem quatro ferramentas, use-as com bom senso, sem forçar:\n"
+        "- buscar_fontes_web: sempre que o aluno perguntar sobre um assunto de estudo "
+        "(conceito, fato, matéria), pesquise na web antes de responder para embasar a resposta "
+        "em fontes verificáveis. Não use para conversa casual, agradecimentos ou perguntas "
+        "sobre o desempenho dele. Os links encontrados são mostrados ao aluno automaticamente "
+        "abaixo da sua resposta - não cole URLs no texto; se a busca não devolver fontes, "
+        "responda normalmente sem inventar nenhuma.\n"
         "- buscar_conteudo: quando o aluno perguntar sobre um assunto amplo (não apenas o "
         "módulo atual), busque se já existe uma trilha - oficial ou de outro aluno - sobre "
         "esse assunto antes de responder só do seu conhecimento geral. Se encontrar, mencione "
@@ -188,7 +203,7 @@ def prompt_agente_aluno_system(conteudo_modulo: str | None) -> str:
         "vai levar um tempo (não é instantâneo) e que a trilha fica pública, votável por "
         "outros alunos - nunca prometa que o conteúdo já está pronto na mesma resposta em que "
         "você chamou essa ferramenta.\n"
-        "Fora essas três coisas, você não tem acesso a nenhuma outra ferramenta nem a dado "
+        "Fora essas quatro coisas, você não tem acesso a nenhuma outra ferramenta nem a dado "
         "algum do aluno - nunca finja que pode consultar ou alterar qualquer outra coisa."
     )
 

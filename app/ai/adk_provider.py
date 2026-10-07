@@ -59,13 +59,14 @@ from app.ai.adk_schemas import PlanoModulosSchema, QuestionarioSchema, ResumoEst
 from app.ai.adk_tools import construir_tools, construir_tools_aluno
 from app.ai.base import AIProvider
 from app.ai.gemini_provider import GeminiProvider
-from app.ai.grounding import fontes_a_partir_do_grounding
+from app.ai.grounding import fontes_a_partir_do_grounding, fontes_web_a_partir_do_grounding
 from app.ai.prompts import (
     AGENTE_ADMIN_SYSTEM_INSTRUCTION,
     prompt_agente_aluno_system,
     prompt_buscar_fontes,
     prompt_gerar_conteudo_modulo,
     prompt_gerar_questionario,
+    prompt_pesquisa_web,
     prompt_planejar_modulos,
     prompt_resumo_estudo,
 )
@@ -83,6 +84,7 @@ from app.ai.schemas import (
     PlanoModulos,
     QuestaoGerada,
     QuestionarioGerado,
+    ResultadoBuscaWeb,
     ResumoEstudoGerado,
 )
 from app.config import Settings
@@ -128,6 +130,15 @@ class AdkProvider(AIProvider):
             name="fontes_agent",
             model=settings.GEMINI_MODEL_SEARCH,
             instruction="Você é um assistente de pesquisa educacional.",
+            tools=[google_search],
+        )
+        # `google_search` can't share an agent with function tools, so the
+        # student chat reaches it through `pesquisar_web` (called from the
+        # `buscar_fontes_web` tool) rather than on the chat agent itself.
+        self._pesquisa_web_agent = LlmAgent(
+            name="pesquisa_web_agent",
+            model=settings.GEMINI_MODEL_SEARCH,
+            instruction="Você é um assistente de pesquisa educacional para estudantes do ENEM.",
             tools=[google_search],
         )
         self._resumo_estudo_agent = LlmAgent(
@@ -304,6 +315,20 @@ class AdkProvider(AIProvider):
         except Exception as exc:  # noqa: BLE001
             raise ProvedorIAIndisponivelException(f"Falha ao buscar fontes: {exc}") from exc
         return self._parse_fontes(texto, grounding, tema_titulo)
+
+    def pesquisar_web(self, consulta: str) -> ResultadoBuscaWeb:
+        try:
+            texto, grounding = self._run_single_turn_full(
+                self._pesquisa_web_agent, prompt_pesquisa_web(consulta)
+            )
+        except ProvedorIAIndisponivelException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ProvedorIAIndisponivelException(f"Falha na pesquisa web: {exc}") from exc
+        chunks = getattr(grounding, "grounding_chunks", None) or []
+        return ResultadoBuscaWeb(
+            resumo=texto, fontes=fontes_web_a_partir_do_grounding(chunks, consulta)
+        )
 
     @staticmethod
     def _parse_fontes(
