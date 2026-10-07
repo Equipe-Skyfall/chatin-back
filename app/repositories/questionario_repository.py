@@ -27,6 +27,14 @@ class QuestionarioRepository(SqlAlchemyRepository[Questionario]):
         stmt = select(Questionario).where(Questionario.modulo_id == modulo_id)
         return self.db.execute(stmt).scalar_one_or_none()
 
+    def get_tema_id(self, questionario_id: uuid.UUID) -> uuid.UUID | None:
+        stmt = (
+            select(Modulo.tema_id)
+            .join(Questionario, Questionario.modulo_id == Modulo.id)
+            .where(Questionario.id == questionario_id)
+        )
+        return self.db.execute(stmt).scalar_one_or_none()
+
     def add_questao(self, questao: Questao) -> Questao:
         self.db.add(questao)
         return questao
