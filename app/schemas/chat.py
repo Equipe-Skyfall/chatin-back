@@ -22,9 +22,17 @@ class AlunoChatMensagemInput(BaseModel):
     )
 
 
+class FonteWebOut(BaseModel):
+    titulo: str
+    url: str
+    dominio: str | None = None
+    consulta: str | None = None
+
+
 class ChatRespostaOut(BaseModel):
     conversa_id: UUID
     resposta: str
+    fontes: list[FonteWebOut] = Field(default_factory=list)
     materia_criada_id: UUID | None = Field(
         None,
         description=(
@@ -54,6 +62,8 @@ class MensagemOut(BaseModel):
     conteudo: str | None
     chamadas_ferramentas: list[dict[str, Any]] | None
     created_at: datetime
+    fontes: list[FonteWebOut] | None = None
+    pergunta_id: UUID | None = None
 
 
 class ResumoConversaOut(BaseModel):
