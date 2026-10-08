@@ -239,6 +239,33 @@ def test_meu_desempenho_informa_nivel_por_tema_com_respostas():
     assert "Estatística" not in resultado  # no answers there, nothing measured to report
 
 
+def test_meu_desempenho_explica_os_niveis_e_que_tema_ausente_nao_e_alto():
+    materia = _materia_com_temas("Matemática", "Funções")
+    materia_repo = _FakeMateriaRepository()
+    materia_repo.seed(materia)
+    tentativa_repo = _FakeTentativaRepository({materia.temas[0].id: (2, 10)})
+
+    resultado = executar_ferramenta_aluno(
+        "meu_desempenho", {}, _ctx(materia_repo=materia_repo, tentativa_repo=tentativa_repo)
+    )
+
+    # the model must be told the real cut-offs, not left to guess them
+    assert "baixo = menos de 50% de acerto" in resultado
+    assert "medio = de 50% até menos de 80%" in resultado
+    assert "alto = 80% ou mais" in resultado
+    assert "menos de 5 respostas" in resultado
+    assert "NÃO significa nível alto" in resultado
+
+
+def test_meu_desempenho_nao_inclui_legenda_sem_nenhum_nivel():
+    materia_repo = _FakeMateriaRepository()
+    materia_repo.seed(_materia_com_temas("Física", "Cinemática"))
+
+    resultado = executar_ferramenta_aluno("meu_desempenho", {}, _ctx(materia_repo=materia_repo))
+
+    assert "Níveis por tema" not in resultado
+
+
 def test_meu_desempenho_nao_inventa_nivel_para_tema_sem_respostas():
     materia_repo = _FakeMateriaRepository()
     materia_repo.seed(_materia_com_temas("Física", "Cinemática"))

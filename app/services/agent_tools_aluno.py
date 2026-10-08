@@ -53,6 +53,22 @@ def _buscar_conteudo(args: dict[str, Any], ctx: FerramentaContexto) -> str:
     return "\n".join(linhas)
 
 
+def _legenda_niveis() -> str:
+    """Spelled out in the tool's own output because the model otherwise invents
+    the cut-offs (it was seen claiming "baixo = abaixo de 30%") and reads a
+    tema's absence from the list as a good level. Built from the same
+    constants `classificar_desempenho` uses, so the two can't drift apart."""
+    baixo = dificuldade_service.LIMIAR_BAIXO
+    alto = dificuldade_service.LIMIAR_ALTO
+    minimo = dificuldade_service.MINIMO_RESPOSTAS_PARA_NIVEL_TEMA
+    return (
+        f"Níveis por tema: baixo = menos de {baixo}% de acerto; medio = de {baixo}% até menos "
+        f"de {alto}%; alto = {alto}% ou mais (com menos de {minimo} respostas o nível ainda "
+        "é medio, pois não há dados suficientes). Um tema que não aparece na lista é um tema "
+        "em que o aluno ainda não respondeu nenhuma questão - isso NÃO significa nível alto."
+    )
+
+
 def _descrever_desempenho_por_tema(
     temas, desempenho_por_tema: dict[uuid.UUID, tuple[int, int]]
 ) -> list[str]:
@@ -88,6 +104,7 @@ def _meu_desempenho(args: dict[str, Any], ctx: FerramentaContexto) -> str:
     desempenho_por_tema = ctx.tentativa_repo.desempenho_por_tema(ctx.user_id)
 
     linhas = []
+    algum_nivel = False
     for materia in materias:
         xp = ctx.xp_repo.total_por_usuario_e_materia(ctx.user_id, materia.id)
         concluidos = 0
@@ -109,10 +126,13 @@ def _meu_desempenho(args: dict[str, Any], ctx: FerramentaContexto) -> str:
         por_tema = _descrever_desempenho_por_tema(materia.temas, desempenho_por_tema)
         if por_tema:
             linha += f"; desempenho por tema: {', '.join(por_tema)}"
+            algum_nivel = True
         linhas.append(linha)
 
     if not linhas:
         return "O aluno ainda não tem nenhum progresso registrado."
+    if algum_nivel:
+        linhas.append(_legenda_niveis())
     return "\n".join(linhas)
 
 
