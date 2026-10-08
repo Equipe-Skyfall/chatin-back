@@ -19,6 +19,7 @@ model. A closure has no such leak: `ctx` is a free variable, never a
 parameter, so it's structurally impossible for the model to see or set it.
 """
 
+import asyncio
 import logging
 from collections.abc import Callable
 
@@ -366,7 +367,7 @@ def construir_tools_aluno(ctx: FerramentaContexto) -> list[Callable]:
             ctx,
         )
 
-    def buscar_fontes_web(consulta: str) -> str:
+    async def buscar_fontes_web(consulta: str) -> str:
         """Pesquisa na web sobre um assunto de estudo e devolve um resumo
         embasado em páginas reais. Os links ficam disponíveis para o aluno
         automaticamente - use o resumo para fundamentar a resposta.
@@ -374,11 +375,14 @@ def construir_tools_aluno(ctx: FerramentaContexto) -> list[Callable]:
         Args:
             consulta: O que pesquisar (ex.: 'causas da Revolução Francesa').
         """
+        # Async because the ADK runs this tool inside its own running event
+        # loop, where the provider's sync `asyncio.run(...)` cannot be called -
+        # a worker thread gets its own loop (and keeps this one unblocked).
         if len(ctx.fontes_web_consultas) >= MAX_BUSCAS_WEB_POR_TURNO:
             return "Limite de buscas desta resposta atingido - responda com o que já encontrou."
         ctx.fontes_web_consultas.append(consulta)
         try:
-            resultado = ctx.ai_provider.pesquisar_web(consulta)
+            resultado = await asyncio.to_thread(ctx.ai_provider.pesquisar_web, consulta)
         except Exception:  # noqa: BLE001 - RNF6: a busca nunca derruba a resposta
             logger.warning(
                 "Falha na busca web para %r; respondendo sem fontes.", consulta, exc_info=True

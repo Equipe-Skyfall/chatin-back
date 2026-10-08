@@ -1,9 +1,13 @@
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import httpx
+import pytest
+
 from app.ai.adk_tools import MAX_BUSCAS_WEB_POR_TURNO, construir_tools_aluno
-from app.ai.grounding import fontes_web_a_partir_do_grounding
+from app.ai.grounding import fontes_web_a_partir_do_grounding, resolver_redirect
 from app.ai.schemas import FerramentaContexto, MensagemHistorico, ResultadoBuscaWeb
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, TIPO_ALUNO, Conversa, Mensagem
 from app.services import chat_aluno_service
@@ -64,14 +68,57 @@ def test_grounding_titulo_cai_para_dominio_e_depois_url():
     assert [f.titulo for f in fontes] == ["a.org", "https://b"]
 
 
+# --- redirect do Google ---
+
+
+def test_resolver_redirect_le_so_o_location_do_google(monkeypatch):
+    chamadas = []
+
+    def falso_get(url, **kwargs):
+        chamadas.append((url, kwargs))
+        return httpx.Response(302, headers={"location": "https://real.org/pagina"})
+
+    monkeypatch.setattr(httpx, "get", falso_get)
+
+    final = resolver_redirect("https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc")
+
+    assert final == "https://real.org/pagina"
+    assert chamadas[0][1]["follow_redirects"] is False
+
+
+def test_resolver_redirect_nao_busca_pagina_de_terceiro(monkeypatch):
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: pytest.fail("não deveria fazer request"))
+
+    assert resolver_redirect("https://real.org/pagina") == "https://real.org/pagina"
+
+
+def test_resolver_redirect_falha_de_rede_mantem_o_link(monkeypatch):
+    def quebra(*a, **k):
+        raise httpx.ConnectTimeout("lento")
+
+    monkeypatch.setattr(httpx, "get", quebra)
+    url = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc"
+
+    assert resolver_redirect(url) == url
+
+
 # --- ferramenta buscar_fontes_web ---
+
+
+def test_ferramenta_e_async_para_rodar_dentro_do_event_loop_do_adk():
+    """Regressão: sync, a ferramenta chamava `asyncio.run` dentro do loop já
+    ativo do ADK e a busca nunca devolvia fontes."""
+    ctx = _ctx(None)
+    tool = {t.__name__: t for t in construir_tools_aluno(ctx)}["buscar_fontes_web"]
+
+    assert asyncio.iscoroutinefunction(tool)
 
 
 def test_ferramenta_acumula_fontes_no_ctx(fake_ai_provider):
     ctx = _ctx(fake_ai_provider)
     tools = {t.__name__: t for t in construir_tools_aluno(ctx)}
 
-    resumo = tools["buscar_fontes_web"]("fotossíntese")
+    resumo = asyncio.run(tools["buscar_fontes_web"]("fotossíntese"))
 
     assert resumo == "Resumo web sobre fotossíntese"
     assert [f.url for f in ctx.fontes_web] == ["https://example.org/a"]
@@ -81,8 +128,8 @@ def test_ferramenta_nao_repete_fonte_ja_vista(fake_ai_provider):
     ctx = _ctx(fake_ai_provider)
     tool = {t.__name__: t for t in construir_tools_aluno(ctx)}["buscar_fontes_web"]
 
-    tool("a")
-    tool("b")
+    asyncio.run(tool("a"))
+    asyncio.run(tool("b"))
 
     assert len(ctx.fontes_web) == 1
 
@@ -93,7 +140,7 @@ def test_ferramenta_falha_da_busca_nao_levanta_e_nao_deixa_fontes(fake_ai_provid
     ctx = _ctx(fake_ai_provider)
     tool = {t.__name__: t for t in construir_tools_aluno(ctx)}["buscar_fontes_web"]
 
-    resposta = tool("qualquer coisa")
+    resposta = asyncio.run(tool("qualquer coisa"))
 
     assert "indisponível" in resposta
     assert ctx.fontes_web == []
@@ -104,7 +151,7 @@ def test_ferramenta_limita_buscas_por_turno(fake_ai_provider):
     tool = {t.__name__: t for t in construir_tools_aluno(ctx)}["buscar_fontes_web"]
 
     for i in range(MAX_BUSCAS_WEB_POR_TURNO + 2):
-        tool(f"consulta {i}")
+        asyncio.run(tool(f"consulta {i}"))
 
     assert fake_ai_provider.pesquisar_web_calls == MAX_BUSCAS_WEB_POR_TURNO
 
@@ -114,7 +161,7 @@ def test_ferramenta_sem_resultados_orienta_a_responder_sem_fontes(fake_ai_provid
     ctx = _ctx(fake_ai_provider)
     tool = {t.__name__: t for t in construir_tools_aluno(ctx)}["buscar_fontes_web"]
 
-    assert "sem fontes" in tool("x")
+    assert "sem fontes" in asyncio.run(tool("x"))
     assert ctx.fontes_web == []
 
 

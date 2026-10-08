@@ -6,6 +6,7 @@ back the same `grounding_chunks` shape through the raw SDK and through the ADK.
 import logging
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -57,19 +58,25 @@ def fontes_a_partir_do_grounding(
 
 
 _TIMEOUT_REDIRECT_S = 2.0
+_HOST_REDIRECT_GOOGLE = "vertexaisearch.cloud.google.com"
 
 
 def resolver_redirect(url: str) -> str:
     """Gemini's grounding links are short-lived Google redirects
-    (`vertexaisearch.cloud.google.com/grounding-api-redirect/...`); follow
-    them once, now, so the student gets the page's real address. Best effort:
-    any failure keeps the original link."""
+    (`vertexaisearch.cloud.google.com/grounding-api-redirect/...`); read the
+    real address off that one redirect, now, so the student gets a lasting
+    link. Only the Google hop is requested (`Location` header, no
+    `follow_redirects`) - the server never fetches the cited third-party page.
+    Best effort: anything else, or any failure, keeps the original link."""
+    if urlparse(url).hostname != _HOST_REDIRECT_GOOGLE:
+        return url
     try:
-        resposta = httpx.get(url, follow_redirects=True, timeout=_TIMEOUT_REDIRECT_S)
-        return str(resposta.url)
+        resposta = httpx.get(url, follow_redirects=False, timeout=_TIMEOUT_REDIRECT_S)
     except httpx.HTTPError:
         logger.debug("Não foi possível resolver o redirect %s; mantendo o link original.", url)
         return url
+    destino = resposta.headers.get("location")
+    return destino if resposta.is_redirect and destino else url
 
 
 def fontes_web_a_partir_do_grounding(
