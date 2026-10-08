@@ -35,6 +35,7 @@ from app.services import (
 )
 from app.services.progresso_service import (
     atualizar_progresso,
+    desempenho_tema_out,
     estado_modulo,
     estado_tema,
     montar_progresso,
@@ -220,6 +221,11 @@ def responder_tentativa(
         tentativa_repo.commit()
     # a tema-scoped (review) or `pratica` attempt is practice only - no progress/XP change
 
+    # Every completed attempt counts toward the tema's performance level,
+    # practice included (it's answers, not progress).
+    tema_id = tentativa.tema_id or tentativa.questionario.modulo.tema_id
+    corretas, total = tentativa_repo.desempenho_por_tema(user_id).get(tema_id, (0, 0))
+
     return TentativaResultadoOut(
         id=tentativa.id,
         questionario_id=tentativa.questionario_id,
@@ -229,6 +235,7 @@ def responder_tentativa(
         total_corretas=tentativa.total_corretas,
         aprovado=aprovado,
         feedback=feedback,
+        desempenho_tema=desempenho_tema_out(corretas, total),
         resultados=resultados,
     )
 
@@ -258,9 +265,12 @@ def obter_progresso(
     materia_repo: MateriaRepo,
     progresso_repo: ProgressoRepo,
     xp_repo: XpRepo,
+    tentativa_repo: TentativaRepo,
 ) -> ProgressoOut:
     materias = materia_repo.list_minhas_e_globais_with_temas_e_modulos(user_id)
     modulo_ids = [m.id for materia in materias for tema in materia.temas for m in tema.modulos]
     progresso_rows = progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
     xp_por_materia = {m.id: xp_repo.total_por_usuario_e_materia(user_id, m.id) for m in materias}
-    return montar_progresso(materias, progresso_rows, xp_por_materia)
+    return montar_progresso(
+        materias, progresso_rows, xp_por_materia, tentativa_repo.desempenho_por_tema(user_id)
+    )
