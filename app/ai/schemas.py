@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from app.repositories.progresso_repository import ProgressoRepository
     from app.repositories.questionario_repository import QuestionarioRepository
     from app.repositories.tema_repository import TemaRepository
+    from app.repositories.tentativa_repository import TentativaRepository
     from app.repositories.voto_repository import VotoRepository
     from app.repositories.xp_repository import XpRepository
 
@@ -202,7 +203,7 @@ class FerramentaContexto:
     `AdkProvider`'s ADK `SessionService`) keys that session off
     `conversa_id`. Shared by both the admin agent (`agent_tools.py`) and the
     student agent (`agent_tools_aluno.py`) - `xp_repo`/`progresso_repo`/
-    `voto_repo`/`background_tasks` exist for the latter's tools
+    `tentativa_repo`/`voto_repo`/`background_tasks` exist for the latter's tools
     (`meu_desempenho`, `criar_minha_trilha`) and are simply unused by the
     admin's; splitting into two context types wasn't worth it for the size
     of the difference."""
@@ -213,6 +214,7 @@ class FerramentaContexto:
     questionario_repo: "QuestionarioRepository"
     xp_repo: "XpRepository"
     progresso_repo: "ProgressoRepository"
+    tentativa_repo: "TentativaRepository"
     voto_repo: "VotoRepository"
     ai_provider: "AIProvider"
     pool_size: int

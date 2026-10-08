@@ -223,6 +223,7 @@ def _ctx(conversa_id=None) -> FerramentaContexto:
         modulo_repo=MagicMock(),
         questionario_repo=MagicMock(),
         xp_repo=MagicMock(),
+        tentativa_repo=MagicMock(),
         progresso_repo=MagicMock(),
         voto_repo=MagicMock(),
         ai_provider=MagicMock(),

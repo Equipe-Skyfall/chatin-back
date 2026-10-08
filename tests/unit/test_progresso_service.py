@@ -190,3 +190,21 @@ def test_atualizar_progresso_retentativa_com_melhoria_ganha_xp():
 
     # retake that beats the previous best earns the improvement as bonus XP
     assert xp_repo.total_por_usuario(user_id) == xp_apos_primeira + 30
+
+
+def test_montar_progresso_inclui_desempenho_por_tema():
+    materia = MateriaBuilder().build()
+    tema_com_dados = TemaBuilder().com_materia_id(materia.id).pronto().build()
+    tema_sem_dados = TemaBuilder().com_materia_id(materia.id).pronto().build()
+    materia.temas = [tema_com_dados, tema_sem_dados]
+    for tema in materia.temas:
+        tema.modulos = [ModuloBuilder().com_tema_id(tema.id).pronto().build()]
+
+    out = progresso_service.montar_progresso([materia], [], {}, {tema_com_dados.id: (9, 10)})
+
+    por_tema = {t.tema_id: t.desempenho for t in out.materias[0].temas}
+    assert por_tema[tema_com_dados.id].nivel == "alto"
+    assert por_tema[tema_com_dados.id].taxa_acerto == 90.0
+    assert por_tema[tema_com_dados.id].total_respostas == 10
+    assert por_tema[tema_sem_dados.id].nivel == "medio"
+    assert por_tema[tema_sem_dados.id].total_respostas == 0

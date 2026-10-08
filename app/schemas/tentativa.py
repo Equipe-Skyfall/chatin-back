@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.schemas.progresso import DesempenhoTemaOut
 from app.schemas.questionario import Letra
 
 
@@ -33,6 +34,9 @@ class TentativaResultadoOut(BaseModel):
     total_corretas: int
     aprovado: bool
     feedback: str | None = None
+    # The student's updated performance in this attempt's tema, now that the
+    # attempt counts toward it.
+    desempenho_tema: DesempenhoTemaOut | None = None
     resultados: list[RespostaResultadoOut]
 
 

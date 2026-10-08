@@ -97,6 +97,14 @@ class _FakeProgressoRepository:
         return [r for r in self._rows if r.modulo_id in modulo_ids]
 
 
+class _FakeTentativaRepository:
+    def __init__(self, por_tema: dict[uuid.UUID, tuple[int, int]] | None = None):
+        self.por_tema = por_tema or {}
+
+    def desempenho_por_tema(self, user_id: str) -> dict[uuid.UUID, tuple[int, int]]:
+        return dict(self.por_tema)
+
+
 class _FakeBackgroundTasks:
     """Records scheduled calls without running them - matches how a real
     `BackgroundTasks` behaves (it only runs after the response is sent), and
@@ -117,6 +125,7 @@ def _ctx(
     voto_repo: _FakeVotoRepository | None = None,
     xp_repo: _FakeXpRepository | None = None,
     progresso_repo: _FakeProgressoRepository | None = None,
+    tentativa_repo: _FakeTentativaRepository | None = None,
     background_tasks: _FakeBackgroundTasks | None = None,
 ) -> FerramentaContexto:
     return FerramentaContexto(
@@ -126,6 +135,7 @@ def _ctx(
         questionario_repo=None,
         xp_repo=xp_repo or _FakeXpRepository(),
         progresso_repo=progresso_repo or _FakeProgressoRepository(),
+        tentativa_repo=tentativa_repo or _FakeTentativaRepository(),
         voto_repo=voto_repo or _FakeVotoRepository(),
         ai_provider=None,
         pool_size=12,
@@ -202,6 +212,40 @@ def test_meu_desempenho_filtra_por_nome_inexistente():
     )
 
     assert "Nenhuma matéria encontrada" in resultado
+
+
+def _materia_com_temas(nome: str, *titulos: str) -> Materia:
+    materia = Materia(id=uuid.uuid4(), nome=nome, owner_user_id=None)
+    materia.temas = [
+        Tema(id=uuid.uuid4(), materia_id=materia.id, titulo=t, ordem=i)
+        for i, t in enumerate(titulos)
+    ]
+    return materia
+
+
+def test_meu_desempenho_informa_nivel_por_tema_com_respostas():
+    materia = _materia_com_temas("Matemática", "Funções", "Geometria", "Estatística")
+    funcoes, geometria, _ = materia.temas
+    materia_repo = _FakeMateriaRepository()
+    materia_repo.seed(materia)
+    tentativa_repo = _FakeTentativaRepository({funcoes.id: (2, 10), geometria.id: (9, 10)})
+
+    resultado = executar_ferramenta_aluno(
+        "meu_desempenho", {}, _ctx(materia_repo=materia_repo, tentativa_repo=tentativa_repo)
+    )
+
+    assert "Funções baixo (20% de 10 respostas)" in resultado
+    assert "Geometria alto (90% de 10 respostas)" in resultado
+    assert "Estatística" not in resultado  # no answers there, nothing measured to report
+
+
+def test_meu_desempenho_nao_inventa_nivel_para_tema_sem_respostas():
+    materia_repo = _FakeMateriaRepository()
+    materia_repo.seed(_materia_com_temas("Física", "Cinemática"))
+
+    resultado = executar_ferramenta_aluno("meu_desempenho", {}, _ctx(materia_repo=materia_repo))
+
+    assert "desempenho por tema" not in resultado
 
 
 # --- criar_minha_trilha ---

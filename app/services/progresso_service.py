@@ -17,13 +17,14 @@ from app.repositories.progresso_repository import ProgressoRepository
 from app.repositories.xp_repository import XpRepository
 from app.schemas.common import EstadoProgresso
 from app.schemas.progresso import (
+    DesempenhoTemaOut,
     ProgressoMateriaOut,
     ProgressoModuloOut,
     ProgressoOut,
     ProgressoTemaOut,
 )
 from app.schemas.trilha import TrilhaMateriaOut, TrilhaModuloOut, TrilhaOut, TrilhaTemaOut
-from app.services import xp_service
+from app.services import dificuldade_service, xp_service
 
 
 def _modulo_concluido(progresso: ProgressoUsuario | None) -> bool:
@@ -95,12 +96,22 @@ def montar_trilha(materias: list[Materia], progresso_rows: list[ProgressoUsuario
     return TrilhaOut(materias=materias_out)
 
 
+def desempenho_tema_out(corretas: int, total: int) -> DesempenhoTemaOut:
+    return DesempenhoTemaOut(
+        nivel=dificuldade_service.classificar_desempenho(corretas, total),
+        taxa_acerto=dificuldade_service.taxa_acerto(corretas, total),
+        total_respostas=total,
+    )
+
+
 def montar_progresso(
     materias: list[Materia],
     progresso_rows: list[ProgressoUsuario],
     xp_por_materia: dict[uuid.UUID, int],
+    desempenho_por_tema: dict[uuid.UUID, tuple[int, int]] | None = None,
 ) -> ProgressoOut:
     progresso_map = {p.modulo_id: p for p in progresso_rows}
+    desempenho_por_tema = desempenho_por_tema or {}
     materias_out: list[ProgressoMateriaOut] = []
 
     for materia in sorted(materias, key=lambda m: m.nome):
@@ -140,6 +151,7 @@ def montar_progresso(
                     titulo=tema.titulo,
                     estado=tema_estado,
                     percentual_completo=round(percentual_tema, 2),
+                    desempenho=desempenho_tema_out(*desempenho_por_tema.get(tema.id, (0, 0))),
                     modulos=modulos_out,
                 )
             )

@@ -22,6 +22,7 @@ def _ctx(ai_provider, conversa_id=None) -> FerramentaContexto:
         questionario_repo=None,
         xp_repo=None,
         progresso_repo=None,
+        tentativa_repo=None,
         voto_repo=None,
         ai_provider=ai_provider,
         pool_size=12,
