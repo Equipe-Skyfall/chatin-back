@@ -189,10 +189,12 @@ class FakeAIProvider(AIProvider):
         if self.falhar_conversar_com_agente_aluno:
             raise RuntimeError("falha simulada na conversa com o agente do aluno")
         if self.consulta_web_do_agente is not None:
+            import asyncio
+
             from app.ai.adk_tools import construir_tools_aluno
 
             tools = {t.__name__: t for t in construir_tools_aluno(ctx)}
-            tools["buscar_fontes_web"](self.consulta_web_do_agente)
+            asyncio.run(tools["buscar_fontes_web"](self.consulta_web_do_agente))
         if self.resposta_agente_aluno_fixa is not None:
             return self.resposta_agente_aluno_fixa
         pergunta = mensagens[-1].conteudo if mensagens else ""
