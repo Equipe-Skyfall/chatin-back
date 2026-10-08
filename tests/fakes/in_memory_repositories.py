@@ -136,6 +136,13 @@ class InMemoryQuestionarioRepository:
         self.gabaritos: dict[uuid.UUID, str] = {}
         self._questionarios_by_modulo: dict[uuid.UUID, Questionario] = {}
         self._pool_por_tema: dict[uuid.UUID, list[uuid.UUID]] = {}
+        self._tema_por_questionario: dict[uuid.UUID, uuid.UUID] = {}
+
+    def seed_tema_do_questionario(self, questionario_id: uuid.UUID, tema_id: uuid.UUID) -> None:
+        self._tema_por_questionario[questionario_id] = tema_id
+
+    def get_tema_id(self, questionario_id: uuid.UUID) -> uuid.UUID | None:
+        return self._tema_por_questionario.get(questionario_id)
 
     def seed_pool_tema(self, tema_id: uuid.UUID, questao_ids: list[uuid.UUID]) -> None:
         """Test double shortcut: register a tema's review-quiz pool directly,
@@ -213,6 +220,9 @@ class InMemoryTentativaRepository:
         self._pendentes: list[Tentativa] = []
         self._questoes_por_tentativa: dict[uuid.UUID, set[uuid.UUID]] = {}
         self.respostas: list[RespostaTentativa] = []
+        # Test control: which tema each questão belongs to (the real query
+        # derives it through questionário -> módulo).
+        self.tema_por_questao: dict[uuid.UUID, uuid.UUID] = {}
         # Test control: makes the *next* `flush()` raise `IntegrityError`
         # (and discard whatever was pending, mirroring a real rollback) -
         # like a real race against the partial unique index would. See
@@ -272,6 +282,20 @@ class InMemoryTentativaRepository:
             if t.user_id == user_id and t.status == "concluida" and t.pontuacao is not None
         ]
         return sum(pontuacoes) / len(pontuacoes) if pontuacoes else None
+
+    def desempenho_por_tema(self, user_id: str) -> dict[uuid.UUID, tuple[int, int]]:
+        concluidas = {
+            t.id
+            for t in self.tentativas.values()
+            if t.user_id == user_id and t.status == "concluida"
+        }
+        resultado: dict[uuid.UUID, tuple[int, int]] = {}
+        for r in self.respostas:
+            tema_id = self.tema_por_questao.get(r.questao_id)
+            if r.tentativa_id in concluidas and tema_id is not None:
+                corretas, total = resultado.get(tema_id, (0, 0))
+                resultado[tema_id] = (corretas + int(r.correta), total + 1)
+        return resultado
 
     def flush(self) -> None:
         if self.falhar_proximo_flush:
