@@ -17,6 +17,7 @@ from app.ai.schemas import (
     MensagemAgente,
     PlanoModulos,
     QuestionarioGerado,
+    ResultadoBuscaWeb,
     ResumoEstudoGerado,
 )
 
@@ -99,6 +100,13 @@ class AIProvider(ABC):
         any) the same way the old plain Q&A used to be. `mensagens` is the
         full history including the turn just asked, same convention as
         `conversar_com_ferramentas`."""
+
+    def pesquisar_web(self, consulta: str) -> ResultadoBuscaWeb:
+        """Grounded web search for the student chat (US-10): a synthesized
+        answer plus the pages it cited. Not abstract - a provider without
+        web grounding just returns no sources, and the chat carries on
+        without them (RNF6)."""
+        return ResultadoBuscaWeb(resumo="")
 
     @abstractmethod
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:

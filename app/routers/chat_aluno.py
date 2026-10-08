@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks
@@ -23,6 +24,7 @@ from app.schemas.chat import (
     AlunoChatMensagemInput,
     ChatRespostaOut,
     ConversaOut,
+    FonteWebOut,
     MensagemOut,
     ResumoConversaOut,
 )
@@ -90,6 +92,7 @@ def enviar_mensagem(
     return ChatRespostaOut(
         conversa_id=conversa.id,
         resposta=resposta,
+        fontes=[FonteWebOut(**asdict(f)) for f in ctx.fontes_web],
         materia_criada_id=ctx.materia_criada_id,
         tema_criado_id=ctx.tema_criado_id,
     )
@@ -137,5 +140,7 @@ def obter_historico(
     if isinstance(ai_provider, AdkProvider):
         historico_adk = ai_provider.obter_historico_sessao(conversa_id)
         if historico_adk is not None:
-            return historico_adk
+            return chat_aluno_service.anexar_fontes_ao_historico(
+                historico_adk, conversa.mensagens
+            )
     return conversa.mensagens
