@@ -169,11 +169,27 @@ def prompt_pesquisa_web(consulta: str) -> str:
     )
 
 
+def _escapar_chaves_para_instrucao_adk(texto: str) -> str:
+    """The ADK treats `{algo}` inside an agent's `instruction` string as a
+    session-state template variable (see `instructions_utils._TEMPLATE_VAR_PATTERN`
+    / `_is_valid_state_name`) - `{x}` raises `KeyError: Context variable not
+    found` and 502s the whole turn, `{qualquer coisa com espaço}` is left alone.
+    A módulo's AI-generated content routinely contains a bare `{x}` (algebra,
+    calculus...), and it's the only dynamic text ever interpolated into an
+    `instruction=` string in this codebase (every other agent's instruction is
+    static, so it's never scanned - the ADK skips the regex entirely when
+    there's no `{` at all). Swapping in the visually-identical fullwidth Unicode
+    brace (`｛｝`, U+FF5B/FF5D) defeats that regex - it only matches ASCII
+    `{`/`}` - without visibly changing the content the model reads."""
+    return texto.replace("{", "｛").replace("}", "｝")
+
+
 def prompt_agente_aluno_system(conteudo_modulo: str | None) -> str:
     if conteudo_modulo:
         contexto = (
             "\n\nO aluno está estudando o seguinte conteúdo agora - baseie sua resposta nele "
-            f"sempre que a pergunta se relacionar a ele:\n\n{conteudo_modulo}"
+            "sempre que a pergunta se relacionar a ele:\n\n"
+            f"{_escapar_chaves_para_instrucao_adk(conteudo_modulo)}"
         )
     else:
         contexto = (
