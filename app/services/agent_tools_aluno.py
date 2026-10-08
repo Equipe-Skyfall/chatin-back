@@ -9,12 +9,13 @@ error-handling shape of `agent_tools.executar_ferramenta`, but is a
 separate dispatch table - the two audiences' tools are never mixed.
 """
 
+import uuid
 from collections.abc import Callable
 from typing import Any
 
 from app.ai.schemas import FerramentaContexto, FerramentaDeclaracao
 from app.core.exceptions import AppException
-from app.services import curriculo_service, trilha_pessoal_service
+from app.services import curriculo_service, dificuldade_service, trilha_pessoal_service
 
 # Mirrors `progresso_service`'s default (see `Settings.PONTUACAO_MINIMA_
 # APROVACAO`) - not threaded through `FerramentaContexto` since this is the
@@ -52,6 +53,23 @@ def _buscar_conteudo(args: dict[str, Any], ctx: FerramentaContexto) -> str:
     return "\n".join(linhas)
 
 
+def _descrever_desempenho_por_tema(
+    temas, desempenho_por_tema: dict[uuid.UUID, tuple[int, int]]
+) -> list[str]:
+    """Only temas the student has actually answered questions in - a tema with
+    no answers has no performance to report, and listing it as "médio" would
+    read as a measured result."""
+    descricoes = []
+    for tema in temas:
+        corretas, total = desempenho_por_tema.get(tema.id, (0, 0))
+        if total == 0:
+            continue
+        nivel = dificuldade_service.classificar_desempenho(corretas, total)
+        taxa = dificuldade_service.taxa_acerto(corretas, total)
+        descricoes.append(f"{tema.titulo} {nivel} ({taxa:.0f}% de {total} respostas)")
+    return descricoes
+
+
 def _meu_desempenho(args: dict[str, Any], ctx: FerramentaContexto) -> str:
     materia_nome = args.get("materia_nome")
     materias = ctx.materia_repo.list_minhas_e_globais_with_temas_e_modulos(ctx.user_id)
@@ -66,6 +84,8 @@ def _meu_desempenho(args: dict[str, Any], ctx: FerramentaContexto) -> str:
         p.modulo_id: p
         for p in ctx.progresso_repo.list_by_user_and_modulos(ctx.user_id, modulo_ids)
     }
+
+    desempenho_por_tema = ctx.tentativa_repo.desempenho_por_tema(ctx.user_id)
 
     linhas = []
     for materia in materias:
@@ -86,6 +106,9 @@ def _meu_desempenho(args: dict[str, Any], ctx: FerramentaContexto) -> str:
         linha = f"- {materia.nome}: {xp} XP, {concluidos} módulo(s) concluído(s)"
         if dificuldades:
             linha += f"; dificuldade em: {', '.join(dificuldades)}"
+        por_tema = _descrever_desempenho_por_tema(materia.temas, desempenho_por_tema)
+        if por_tema:
+            linha += f"; desempenho por tema: {', '.join(por_tema)}"
         linhas.append(linha)
 
     if not linhas:
@@ -163,8 +186,9 @@ TOOLS: list[FerramentaDeclaracao] = [
         nome="meu_desempenho",
         descricao=(
             "Retorna o XP e o progresso do aluno, opcionalmente filtrado por matéria - "
-            "incluindo em quais módulos ele teve nota baixa (sinal de dificuldade). Use "
-            "para adaptar a explicação ou sugerir o que revisar."
+            "incluindo em quais módulos ele teve nota baixa e o nível de desempenho "
+            "(baixo, medio ou alto) em cada tema em que já respondeu questões, com a taxa "
+            "de acerto. Use para adaptar a explicação ou sugerir o que revisar."
         ),
         parametros={
             "type": "OBJECT",
