@@ -75,6 +75,7 @@ def iniciar_tentativa_com_pool(
     questionario_id: uuid.UUID | None,
     tema_id: uuid.UUID | None,
     pratica: bool = False,
+    tema_desempenho_id: uuid.UUID | None = None,
 ) -> tuple[Tentativa, list[Questao]]:
     """Shared by `iniciar_tentativa`, `iniciar_tentativa_tema` and
     `questionario_personalizado_service`. A student has at most 1 open
@@ -82,7 +83,11 @@ def iniciar_tentativa_com_pool(
     asked for (same scope and kind - see `mesmo_escopo`) it is resumed with its
     fixed sample; if it is any other quiz it is discarded, and a new sample is
     drawn for the one being asked for. Leaving a quiz half-done therefore never
-    hands its questions to a different módulo."""
+    hands its questions to a different módulo.
+
+    `tema_desempenho_id` is the tema whose performance level steers the
+    sampling (see `dificuldade_service.nivel_para_selecao`); a tema-scoped
+    quiz uses its own `tema_id`."""
     questionario_aberto = tentativa_repo.get_questionario_aberto_by_user(user_id)
     if questionario_aberto is not None:
         if mesmo_escopo(
@@ -96,8 +101,18 @@ def iniciar_tentativa_com_pool(
     # Adaptive selection: a student doing well overall gets more hard
     # questions from the pool, one struggling gets more easy ones - see
     # `dificuldade_service`. Falls back to an effectively uniform weighting
-    # (every question "médio") until enough answer data exists.
-    nivel = dificuldade_service.nivel_do_aluno(tentativa_repo.media_pontuacao_concluidas(user_id))
+    # (every question "médio") until enough answer data exists. The level
+    # comes from the student's performance in this quiz's tema when there's
+    # enough of it, else from their global average.
+    tema_nivel_id = tema_id or tema_desempenho_id
+    desempenho_tema = (
+        tentativa_repo.desempenho_por_tema(user_id).get(tema_nivel_id)
+        if tema_nivel_id is not None
+        else None
+    )
+    nivel = dificuldade_service.nivel_para_selecao(
+        desempenho_tema, tentativa_repo.media_pontuacao_concluidas(user_id)
+    )
     dificuldades = dificuldade_service.dificuldade_por_questao(pool_ids, questionario_repo)
     pesos = {qid: dificuldade_service.PESOS_POR_NIVEL[nivel][dificuldades[qid]] for qid in pool_ids}
     selecionados = dificuldade_service.amostra_ponderada_sem_reposicao(pool_ids, pesos, quantidade)
@@ -157,6 +172,7 @@ def iniciar_tentativa(
         tentativa_repo,
         questionario_id=questionario_id,
         tema_id=None,
+        tema_desempenho_id=questionario_repo.get_tema_id(questionario_id),
     )
 
 
