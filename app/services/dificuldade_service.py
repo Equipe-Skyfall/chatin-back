@@ -25,6 +25,19 @@ NIVEL_INDO_BEM = "indo_bem"
 NIVEL_NEUTRO = "neutro"
 NIVEL_COM_DIFICULDADE = "com_dificuldade"
 
+DESEMPENHO_BAIXO = "baixo"
+DESEMPENHO_MEDIO = "medio"
+DESEMPENHO_ALTO = "alto"
+
+# Score (in %) thresholds shared by the global student level and the per-tema
+# performance level, so "doing well" means the same thing at both scopes.
+LIMIAR_ALTO = 80
+LIMIAR_BAIXO = 50
+
+# Fewer answers than this in a tema and its level isn't trusted: it's "médio"
+# (the cold start), and quiz selection falls back to the global signal.
+MINIMO_RESPOSTAS_PARA_NIVEL_TEMA = 5
+
 PESOS_POR_NIVEL: dict[str, dict[str, float]] = {
     NIVEL_INDO_BEM: {FACIL: 1.0, MEDIO: 2.0, DIFICIL: 4.0},
     NIVEL_NEUTRO: {FACIL: 1.0, MEDIO: 1.0, DIFICIL: 1.0},
@@ -54,11 +67,45 @@ def dificuldade_por_questao(
 def nivel_do_aluno(media_pontuacao: float | None) -> str:
     if media_pontuacao is None:
         return NIVEL_NEUTRO
-    if media_pontuacao >= 80:
+    if media_pontuacao >= LIMIAR_ALTO:
         return NIVEL_INDO_BEM
-    if media_pontuacao < 50:
+    if media_pontuacao < LIMIAR_BAIXO:
         return NIVEL_COM_DIFICULDADE
     return NIVEL_NEUTRO
+
+
+def taxa_acerto(corretas: int, total: int) -> float:
+    return round(corretas / total * 100, 2) if total else 0.0
+
+
+def classificar_desempenho(corretas: int, total: int) -> str:
+    """A student's performance level in one tema, from the correct/total
+    answers recorded across every completed quiz that touched it."""
+    if total < MINIMO_RESPOSTAS_PARA_NIVEL_TEMA:
+        return DESEMPENHO_MEDIO
+    taxa = taxa_acerto(corretas, total)
+    if taxa >= LIMIAR_ALTO:
+        return DESEMPENHO_ALTO
+    if taxa < LIMIAR_BAIXO:
+        return DESEMPENHO_BAIXO
+    return DESEMPENHO_MEDIO
+
+
+_NIVEL_POR_DESEMPENHO = {
+    DESEMPENHO_ALTO: NIVEL_INDO_BEM,
+    DESEMPENHO_MEDIO: NIVEL_NEUTRO,
+    DESEMPENHO_BAIXO: NIVEL_COM_DIFICULDADE,
+}
+
+
+def nivel_para_selecao(
+    desempenho_tema: tuple[int, int] | None, media_pontuacao_global: float | None
+) -> str:
+    """Level used to weight question sampling: the student's performance in
+    the quiz's tema when there's enough data on it, else the global average."""
+    if desempenho_tema is not None and desempenho_tema[1] >= MINIMO_RESPOSTAS_PARA_NIVEL_TEMA:
+        return _NIVEL_POR_DESEMPENHO[classificar_desempenho(*desempenho_tema)]
+    return nivel_do_aluno(media_pontuacao_global)
 
 
 def amostra_ponderada_sem_reposicao(
