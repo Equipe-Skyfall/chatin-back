@@ -159,4 +159,5 @@ def gerar_tentativa_personalizada(
         questionario_id=questionario.id,
         tema_id=None,
         pratica=True,
+        tema_desempenho_id=modulo.tema_id,
     )
