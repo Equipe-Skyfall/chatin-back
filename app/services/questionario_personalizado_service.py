@@ -22,6 +22,7 @@ from app.core.exceptions import (
     AppException,
     ConteudoIndisponivelException,
     GeracaoConteudoFalhouException,
+    ProvedorIAIndisponivelException,
 )
 from app.models.conversa import TIPO_ALUNO
 from app.models.gabarito import Gabarito
@@ -145,9 +146,23 @@ def gerar_tentativa_personalizada(
         )
 
     contexto_conversa = _contexto_conversa(user_id, modulo_id, conversa_repo)
-    _garantir_pool_minimo(
-        modulo, questionario.id, pool_minimo, contexto_conversa, questionario_repo, ai_provider
-    )
+    try:
+        _garantir_pool_minimo(
+            modulo, questionario.id, pool_minimo, contexto_conversa, questionario_repo, ai_provider
+        )
+    except ProvedorIAIndisponivelException:
+        # The AI is only needed to top the pool up. With the provider down, the
+        # student still practices with the questions already there (a shorter,
+        # non-personalized quiz) instead of getting an error; only a module with
+        # no questions at all has nothing to fall back on.
+        if not questionario_repo.get_questao_ids_pool(questionario.id):
+            raise
+        logger.warning(
+            "IA indisponível ao completar o pool do questionário %s; "
+            "seguindo com as questões já existentes.",
+            questionario.id,
+            exc_info=True,
+        )
 
     pool_ids = questionario_repo.get_questao_ids_pool(questionario.id)
     return grading_service.iniciar_tentativa_com_pool(
