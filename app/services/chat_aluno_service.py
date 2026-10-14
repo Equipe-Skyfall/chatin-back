@@ -12,10 +12,12 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 
 from app.ai.base import AIProvider
+from app.ai.prompts import LICAO_MARCADOR, prompt_licao_modulo
 from app.ai.schemas import FerramentaContexto, MensagemAgente, MensagemHistorico
 from app.core.exceptions import ConversaOcupadaException, ProvedorIAIndisponivelException
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, Conversa, Mensagem
 from app.repositories.conversa_repository import ConversaRepository
+from app.repositories.licao_repository import LicaoRepository
 from app.repositories.modulo_repository import ModuloRepository
 
 logger = logging.getLogger(__name__)
@@ -84,6 +86,46 @@ def enviar_mensagem(
     return resposta
 
 
+def enviar_licao(
+    conversa: Conversa,
+    user_id: str,
+    conversa_repo: ConversaRepository,
+    modulo_repo: ModuloRepository,
+    licao_repo: LicaoRepository,
+    ai_provider: AIProvider,
+    ctx: FerramentaContexto,
+) -> str | None:
+    """Opens the módulo with the agent explaining it in full (only asking at
+    the end whether the student has doubts) and flips `start_lesson` on, which
+    unlocks the módulo's quiz. Returns the lesson text, or `None` when this
+    student already had it (nothing is sent to the model again).
+
+    The student never typed the triggering turn, so only the assistant's reply
+    is stored in `mensagens`. If the model fails the flag stays off and the
+    next time the module is opened the lesson is tried again."""
+    modulo = modulo_repo.get(conversa.modulo_id) if conversa.modulo_id is not None else None
+    if modulo is None or licao_repo.existe(user_id, modulo.id):
+        return None
+
+    pedido = MensagemAgente(papel=PAPEL_USUARIO, conteudo=prompt_licao_modulo(modulo.titulo))
+    resposta = ai_provider.conversar_com_agente_aluno([pedido], modulo.conteudo, ctx)
+
+    ordem = conversa_repo.proxima_ordem(conversa.id)
+    try:
+        conversa_repo.add_mensagem(
+            Mensagem(
+                conversa_id=conversa.id, papel=PAPEL_ASSISTENTE, conteudo=resposta, ordem=ordem
+            )
+        )
+        licao_repo.marcar(user_id, modulo.id)
+        conversa_repo.tocar(conversa.id)
+        conversa_repo.commit()
+    except IntegrityError as exc:
+        conversa_repo.rollback()
+        raise ConversaOcupadaException() from exc
+    return resposta
+
+
 def anexar_fontes_ao_historico(
     historico: list[MensagemHistorico], mensagens: list[Mensagem]
 ) -> list[MensagemHistorico]:
@@ -96,6 +138,8 @@ def anexar_fontes_ao_historico(
     }
     resultado = []
     for item in historico:
+        if item.papel == PAPEL_USUARIO and (item.conteudo or "").startswith(LICAO_MARCADOR):
+            continue  # the lesson's trigger turn - the student never wrote it
         origem = por_conteudo.get(item.conteudo) if item.papel == PAPEL_ASSISTENTE else None
         if origem is not None:
             item = replace(item, fontes=origem.fontes, pergunta_id=origem.pergunta_id)

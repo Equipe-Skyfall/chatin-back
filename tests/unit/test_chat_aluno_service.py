@@ -3,7 +3,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.ai.schemas import FerramentaContexto
+from app.ai.prompts import LICAO_MARCADOR
+from app.ai.schemas import FerramentaContexto, MensagemHistorico
 from app.core.exceptions import ConversaOcupadaException, ProvedorIAIndisponivelException
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, TIPO_ALUNO, Conversa, Mensagem
 from app.services import chat_aluno_service
@@ -233,3 +234,95 @@ def test_obter_ou_gerar_resumo_ia_falha_mantem_resumo_anterior(fake_ai_provider,
     resumo = chat_aluno_service.obter_ou_gerar_resumo(conversa, conversa_repo, fake_ai_provider)
 
     assert resumo == "Resumo antigo."
+
+
+def _licao_setup():
+    modulo = ModuloBuilder().com_titulo("Causas").build()
+    modulo_repo = InMemoryModuloRepository()
+    modulo_repo.seed(modulo)
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(modulo_id=modulo.id)
+    conversa_repo.add(conversa)
+    return modulo, modulo_repo, conversa_repo, conversa
+
+
+def test_enviar_licao_salva_so_a_resposta_e_marca_start_lesson(fake_ai_provider, licao_repo):
+    modulo, modulo_repo, conversa_repo, conversa = _licao_setup()
+
+    resposta = chat_aluno_service.enviar_licao(
+        conversa,
+        "user-1",
+        conversa_repo,
+        modulo_repo,
+        licao_repo,
+        fake_ai_provider,
+        _ctx(conversa.id),
+    )
+
+    assert resposta is not None
+    assert [(m.papel, m.conteudo) for m in conversa.mensagens] == [(PAPEL_ASSISTENTE, resposta)]
+    assert licao_repo.existe("user-1", modulo.id)
+    pedido = fake_ai_provider.historicos_recebidos[0][-1]
+    assert pedido.conteudo.startswith(LICAO_MARCADOR)
+    assert fake_ai_provider.conteudos_modulo_recebidos == [modulo.conteudo]
+
+
+def test_enviar_licao_nao_repete_quando_ja_enviada(fake_ai_provider, licao_repo):
+    modulo, modulo_repo, conversa_repo, conversa = _licao_setup()
+    licao_repo.marcar("user-1", modulo.id)
+
+    resposta = chat_aluno_service.enviar_licao(
+        conversa,
+        "user-1",
+        conversa_repo,
+        modulo_repo,
+        licao_repo,
+        fake_ai_provider,
+        _ctx(conversa.id),
+    )
+
+    assert resposta is None
+    assert fake_ai_provider.conversar_com_agente_aluno_calls == 0
+    assert conversa.mensagens == []
+
+
+def test_enviar_licao_falha_da_ia_nao_marca_start_lesson(fake_ai_provider, licao_repo):
+    modulo, modulo_repo, conversa_repo, conversa = _licao_setup()
+    fake_ai_provider.falhar_conversar_com_agente_aluno = True
+
+    with pytest.raises(RuntimeError):
+        chat_aluno_service.enviar_licao(
+            conversa,
+            "user-1",
+            conversa_repo,
+            modulo_repo,
+            licao_repo,
+            fake_ai_provider,
+            _ctx(conversa.id),
+        )
+
+    assert not licao_repo.existe("user-1", modulo.id)
+    assert conversa.mensagens == []
+
+
+def test_historico_oculta_o_turno_sintetico_da_licao():
+    historico = [
+        MensagemHistorico(
+            id=uuid.uuid4(),
+            papel=PAPEL_USUARIO,
+            conteudo=f"{LICAO_MARCADOR} dê a aula",
+            chamadas_ferramentas=None,
+            created_at=datetime.now(UTC),
+        ),
+        MensagemHistorico(
+            id=uuid.uuid4(),
+            papel=PAPEL_ASSISTENTE,
+            conteudo="Aula completa. Alguma dúvida?",
+            chamadas_ferramentas=None,
+            created_at=datetime.now(UTC),
+        ),
+    ]
+
+    resultado = chat_aluno_service.anexar_fontes_ao_historico(historico, [])
+
+    assert [m.papel for m in resultado] == [PAPEL_ASSISTENTE]
