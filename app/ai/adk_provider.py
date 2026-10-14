@@ -53,7 +53,6 @@ from google.adk.sessions import DatabaseSessionService
 from google.adk.tools import google_search
 from google.genai import types as genai_types
 from pydantic import ValidationError
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.ai import resiliencia
 from app.ai.adk_schemas import PlanoModulosSchema, QuestionarioSchema, ResumoEstudoSchema
@@ -93,9 +92,7 @@ from app.core.exceptions import AgenteLimiteExcedidoException, ProvedorIAIndispo
 
 logger = logging.getLogger(__name__)
 
-_retry_transient = retry(
-    stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8), reraise=True
-)
+_retry_transient = resiliencia.retry_transiente(tentativas=3, espera_max=8)
 
 _APP_NAME = "chatin"
 _USER_ID = "system"  # sessions are keyed by conversa_id (already globally

@@ -1,11 +1,34 @@
 """Resilience helpers for calls to the AI provider (US-14)."""
 
 from google.genai import types
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.config import Settings
+from app.core.exceptions import ProvedorIAIndisponivelException
+from app.core.falha_ia import TipoFalhaIA
 
 
 def opcoes_http(settings: Settings) -> types.HttpOptions:
     """Request options shared by every Gemini client/agent. `HttpOptions.timeout`
     is expressed in milliseconds."""
     return types.HttpOptions(timeout=int(settings.GEMINI_TIMEOUT_SECONDS * 1000))
+
+
+# Only these are worth another attempt: the provider may well answer a moment
+# later. A timeout already made the user wait `GEMINI_TIMEOUT_SECONDS`, and a
+# permanent error (bad key, rejected request) fails identically every time.
+_TIPOS_COM_RETRY = {TipoFalhaIA.LIMITE, TipoFalhaIA.INDISPONIVEL}
+
+
+def _vale_repetir(exc: BaseException) -> bool:
+    return isinstance(exc, ProvedorIAIndisponivelException) and exc.tipo in _TIPOS_COM_RETRY
+
+
+def retry_transiente(tentativas: int = 3, espera_max: int = 8):
+    """Retry with exponential backoff, only for failures `_vale_repetir` accepts."""
+    return retry(
+        stop=stop_after_attempt(tentativas),
+        wait=wait_exponential(multiplier=1, min=1, max=espera_max),
+        retry=retry_if_exception(_vale_repetir),
+        reraise=True,
+    )
