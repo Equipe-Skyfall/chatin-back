@@ -6,10 +6,16 @@ Routers and services raise these instead of building `HTTPException` by hand.
 
 from uuid import UUID
 
+from app.core.falha_ia import TipoFalhaIA, classificar_falha
+
 
 class AppException(Exception):
     status_code: int = 500
     detail: str = "Erro interno."
+    # Stable, machine-readable identifier the frontend can branch on (the
+    # `detail` text is for people and may change). `None` when there is nothing
+    # specific to branch on.
+    code: str | None = None
 
     def __init__(self, detail: str | None = None):
         if detail is not None:
@@ -163,8 +169,35 @@ class NaoAutenticadoException(AppException):
 
 
 class ProvedorIAIndisponivelException(AppException):
-    status_code = 502
-    detail = "O provedor de IA falhou ao gerar o conteúdo."
+    """The AI provider failed. What the student sees (`detail`) is always a
+    friendly sentence; the technical reason passed to the constructor stays in
+    `motivo` for the logs and is never sent to the client. Status and `code`
+    depend on what went wrong, read from the original error (`__cause__`)."""
+
+    def __init__(self, motivo: str | None = None):
+        self.motivo = motivo
+        Exception.__init__(self, motivo or self.detail)
+
+    @property
+    def tipo(self) -> TipoFalhaIA:
+        return classificar_falha(self.__cause__)
+
+    @property
+    def status_code(self) -> int:  # type: ignore[override]
+        return 504 if self.tipo is TipoFalhaIA.TIMEOUT else 503
+
+    @property
+    def code(self) -> str:  # type: ignore[override]
+        return "ia_timeout" if self.tipo is TipoFalhaIA.TIMEOUT else "ia_indisponivel"
+
+    @property
+    def detail(self) -> str:  # type: ignore[override]
+        if self.tipo is TipoFalhaIA.TIMEOUT:
+            return "O assistente de IA demorou demais para responder. Tente novamente em instantes."
+        return (
+            "O assistente de IA está indisponível no momento. "
+            "O restante da plataforma continua funcionando; tente novamente em instantes."
+        )
 
 
 class GeracaoConteudoFalhouException(AppException):
