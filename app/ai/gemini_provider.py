@@ -18,6 +18,7 @@ from google import genai
 from google.genai import types
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from app.ai import resiliencia
 from app.ai.base import AIProvider
 from app.ai.gemini_schemas import (
     PLANO_MODULOS_RESPONSE_SCHEMA,
@@ -77,7 +78,9 @@ _retry_agente = retry(
 class GeminiProvider(AIProvider):
     def __init__(self, settings: Settings):
         self._settings = settings
-        self._client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        self._client = genai.Client(
+            api_key=settings.GEMINI_API_KEY, http_options=resiliencia.opcoes_http(settings)
+        )
 
     @_retry_transient
     def buscar_fontes(
