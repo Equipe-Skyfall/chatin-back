@@ -1,8 +1,11 @@
 """Resilience helpers for calls to the AI provider (US-14)."""
 
+from functools import wraps
+
 from google.genai import types
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from app.ai.disponibilidade import status_ia
 from app.config import Settings
 from app.core.exceptions import ProvedorIAIndisponivelException
 from app.core.falha_ia import TipoFalhaIA
@@ -25,10 +28,29 @@ def _vale_repetir(exc: BaseException) -> bool:
 
 
 def retry_transiente(tentativas: int = 3, espera_max: int = 8):
-    """Retry with exponential backoff, only for failures `_vale_repetir` accepts."""
-    return retry(
+    """Retry with exponential backoff, only for failures `_vale_repetir` accepts.
+    The final outcome of each call (after the retries) is reported to
+    `status_ia`, which backs `GET /ia/status`."""
+    politica = retry(
         stop=stop_after_attempt(tentativas),
         wait=wait_exponential(multiplier=1, min=1, max=espera_max),
         retry=retry_if_exception(_vale_repetir),
         reraise=True,
     )
+
+    def decorador(funcao):
+        com_retry = politica(funcao)
+
+        @wraps(funcao)
+        def envolvida(*args, **kwargs):
+            try:
+                resultado = com_retry(*args, **kwargs)
+            except ProvedorIAIndisponivelException:
+                status_ia.registrar_falha()
+                raise
+            status_ia.registrar_sucesso()
+            return resultado
+
+        return envolvida
+
+    return decorador
