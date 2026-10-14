@@ -1,6 +1,7 @@
 from app.models.conversa import Conversa, Mensagem
 from app.models.fonte import Fonte
 from app.models.gabarito import Gabarito
+from app.models.licao import LicaoIniciada
 from app.models.materia import Materia
 from app.models.modulo import Modulo
 from app.models.perfil import PerfilUsuario
@@ -35,4 +36,5 @@ __all__ = [
     "PerfilUsuario",
     "VotoMateria",
     "ResumoEstudo",
+    "LicaoIniciada",
 ]
