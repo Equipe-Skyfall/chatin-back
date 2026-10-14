@@ -198,7 +198,7 @@ def responder_tentativa(
 
     limite_aprovacao = settings.PONTUACAO_MINIMA_APROVACAO
     aprovado = float(tentativa.pontuacao) >= limite_aprovacao
-    feedback: str | None = None
+    feedback = feedback_tentativa_service.FeedbackTentativa(texto=None)
 
     if tentativa.questionario_id is not None and not tentativa.pratica:
         modulo_id = tentativa.questionario.modulo_id
@@ -217,7 +217,7 @@ def responder_tentativa(
 
         # Best-effort: a provider failure yields `None` and never breaks grading.
         feedback = feedback_tentativa_service.gerar_feedback(resultados, ai_provider)
-        tentativa_repo.definir_feedback(tentativa, feedback)
+        tentativa_repo.definir_feedback(tentativa, feedback.texto)
         tentativa_repo.commit()
     # a tema-scoped (review) or `pratica` attempt is practice only - no progress/XP change
 
@@ -234,7 +234,8 @@ def responder_tentativa(
         total_questoes=tentativa.total_questoes,
         total_corretas=tentativa.total_corretas,
         aprovado=aprovado,
-        feedback=feedback,
+        feedback=feedback.texto,
+        feedback_indisponivel=feedback.indisponivel,
         desempenho_tema=desempenho_tema_out(corretas, total),
         resultados=resultados,
     )

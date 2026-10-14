@@ -6,6 +6,7 @@ segue normal, sem feedback.
 """
 
 import logging
+from typing import NamedTuple
 
 from app.ai.base import AIProvider
 from app.ai.schemas import ErroQuestao
@@ -15,9 +16,17 @@ from app.schemas.tentativa import RespostaResultadoOut
 logger = logging.getLogger(__name__)
 
 
+class FeedbackTentativa(NamedTuple):
+    texto: str | None
+    # True only when feedback was wanted (there were mistakes) but the AI
+    # failed - lets the frontend say "unavailable" instead of showing nothing,
+    # which would look the same as a perfect score.
+    indisponivel: bool = False
+
+
 def gerar_feedback(
     resultados: list[RespostaResultadoOut], ai_provider: AIProvider
-) -> str | None:
+) -> FeedbackTentativa:
     """Resumo, em linguagem natural, só das questões erradas - ou `None`
     quando o aluno acertou tudo, ou quando a IA está indisponível."""
     erros = [
@@ -31,12 +40,12 @@ def gerar_feedback(
         if not resultado.correta
     ]
     if not erros:
-        return None
+        return FeedbackTentativa(texto=None)
 
     try:
-        return ai_provider.gerar_feedback_erros(erros)
+        return FeedbackTentativa(texto=ai_provider.gerar_feedback_erros(erros))
     except ProvedorIAIndisponivelException:
         logger.warning(
             "Falha ao gerar feedback da tentativa; seguindo sem feedback.", exc_info=True
         )
-        return None
+        return FeedbackTentativa(texto=None, indisponivel=True)
