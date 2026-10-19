@@ -17,7 +17,7 @@ from typing import Any
 from google import genai
 from google.genai import types
 
-from app.ai import resiliencia
+from app.ai import consumo, resiliencia
 from app.ai.base import AIProvider
 from app.ai.gemini_schemas import (
     PLANO_MODULOS_RESPONSE_SCHEMA,
@@ -77,12 +77,19 @@ class GeminiProvider(AIProvider):
             api_key=settings.GEMINI_API_KEY, http_options=resiliencia.opcoes_http(settings)
         )
 
+    def _gerar_conteudo(self, **kwargs: Any) -> Any:
+        """`models.generate_content` plus the usage accounting (RNF7); every call
+        in this class goes through here so none is left uncounted."""
+        response = self._client.models.generate_content(**kwargs)
+        consumo.acumular(getattr(response, "usage_metadata", None), kwargs.get("model"))
+        return response
+
     @_retry_transient
     def buscar_fontes(
         self, tema_titulo: str, tema_descricao: str | None, direcionamento: str | None = None
     ) -> list[FonteEncontrada]:
         try:
-            response = self._client.models.generate_content(
+            response = self._gerar_conteudo(
                 model=self._settings.GEMINI_MODEL_SEARCH,
                 contents=prompt_buscar_fontes(tema_titulo, tema_descricao, direcionamento),
                 config=types.GenerateContentConfig(
@@ -115,7 +122,7 @@ class GeminiProvider(AIProvider):
         instrucoes_regeneracao: str | None = None,
     ) -> ConteudoGerado:
         try:
-            response = self._client.models.generate_content(
+            response = self._gerar_conteudo(
                 model=self._settings.GEMINI_MODEL_CONTEUDO,
                 contents=prompt_gerar_conteudo_modulo(
                     tema_titulo,
@@ -185,7 +192,7 @@ class GeminiProvider(AIProvider):
         if reforco:
             prompt = f"{prompt}\n\n{reforco}"
         try:
-            response = self._client.models.generate_content(
+            response = self._gerar_conteudo(
                 model=self._settings.GEMINI_MODEL_QUESTIONARIO,
                 contents=prompt,
                 config=types.GenerateContentConfig(
@@ -283,7 +290,7 @@ class GeminiProvider(AIProvider):
         if reforco:
             prompt = f"{prompt}\n\n{reforco}"
         try:
-            response = self._client.models.generate_content(
+            response = self._gerar_conteudo(
                 model=self._settings.GEMINI_MODEL_CONTEUDO,
                 contents=prompt,
                 config=types.GenerateContentConfig(
@@ -419,7 +426,7 @@ class GeminiProvider(AIProvider):
         # instruction slightly per call forces a fresh cache key each attempt.
         instrucao = f"{instrucao_base}\n\n<!-- {uuid.uuid4()} -->"
         try:
-            response = self._client.models.generate_content(
+            response = self._gerar_conteudo(
                 model=self._settings.GEMINI_MODEL_AGENTE,
                 contents=[self._para_content(m) for m in mensagens],
                 config=types.GenerateContentConfig(tools=[tool], system_instruction=instrucao),
@@ -499,7 +506,7 @@ class GeminiProvider(AIProvider):
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         contents = [self._para_content(m) for m in mensagens]
         try:
-            response = self._client.models.generate_content(
+            response = self._gerar_conteudo(
                 model=self._settings.GEMINI_MODEL_PROFESSOR,
                 contents=contents,
                 config=types.GenerateContentConfig(system_instruction=prompt_resumir_conversa()),
@@ -562,7 +569,7 @@ class GeminiProvider(AIProvider):
         if reforco:
             prompt = f"{prompt}\n\n{reforco}"
         try:
-            response = self._client.models.generate_content(
+            response = self._gerar_conteudo(
                 model=self._settings.GEMINI_MODEL_PROFESSOR,
                 contents=prompt,
                 config=types.GenerateContentConfig(
@@ -617,7 +624,7 @@ class GeminiProvider(AIProvider):
     @_retry_transient
     def gerar_feedback_erros(self, erros: list[ErroQuestao]) -> str:
         try:
-            response = self._client.models.generate_content(
+            response = self._gerar_conteudo(
                 model=self._settings.GEMINI_MODEL_PROFESSOR,
                 contents=prompt_feedback_erros(self._formatar_erros(erros)),
             )

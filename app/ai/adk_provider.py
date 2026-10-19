@@ -54,7 +54,7 @@ from google.adk.tools import google_search
 from google.genai import types as genai_types
 from pydantic import ValidationError
 
-from app.ai import resiliencia
+from app.ai import consumo, resiliencia
 from app.ai.adk_schemas import PlanoModulosSchema, QuestionarioSchema, ResumoEstudoSchema
 from app.ai.adk_tools import construir_tools, construir_tools_aluno
 from app.ai.base import AIProvider
@@ -209,6 +209,7 @@ class AdkProvider(AIProvider):
                     raise ProvedorIAIndisponivelException(
                         f"Falha no agente ADK '{agent.name}': {event.error_message}"
                     )
+                consumo.acumular(event.usage_metadata, event.model_version)
                 if event.grounding_metadata is not None:
                     grounding = event.grounding_metadata
                 if event.is_final_response() and event.content and event.content.parts:
@@ -327,9 +328,10 @@ class AdkProvider(AIProvider):
 
     def pesquisar_web(self, consulta: str) -> ResultadoBuscaWeb:
         try:
-            texto, grounding = self._run_single_turn_full(
-                self._pesquisa_web_agent, prompt_pesquisa_web(consulta)
-            )
+            with consumo.medir("pesquisar_web"):
+                texto, grounding = self._run_single_turn_full(
+                    self._pesquisa_web_agent, prompt_pesquisa_web(consulta)
+                )
         except ProvedorIAIndisponivelException:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -497,12 +499,14 @@ class AdkProvider(AIProvider):
                     raise ProvedorIAIndisponivelException(
                         f"Falha na conversa com o agente: {event.error_message}"
                     )
+                consumo.acumular(event.usage_metadata, event.model_version)
                 if event.is_final_response() and event.content and event.content.parts:
                     texto_final = "".join(part.text for part in event.content.parts if part.text)
             return texto_final
 
         try:
-            return self._run_no_loop_do_agente(_run())
+            with consumo.medir("conversar_com_agente"):
+                return self._run_no_loop_do_agente(_run())
         except LlmCallsLimitExceededError as exc:
             raise AgenteLimiteExcedidoException() from exc
         except ProvedorIAIndisponivelException:
