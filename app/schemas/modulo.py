@@ -48,6 +48,7 @@ class ModuloDetailOut(BaseModel):
     descricao: str | None
     estado: EstadoProgresso
     conteudo: str
+    start_lesson: bool = False
 
 
 class ConteudoModuloAdminOut(BaseModel):
