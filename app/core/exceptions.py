@@ -16,8 +16,6 @@ class AppException(Exception):
     # `detail` text is for people and may change). `None` when there is nothing
     # specific to branch on.
     code: str | None = None
-    # Extra fields merged into the JSON body next to `detail`/`code`.
-    extra: dict | None = None
 
     def __init__(self, detail: str | None = None):
         if detail is not None:
@@ -172,16 +170,6 @@ class TemaBloqueadoException(AppException):
 class ModuloBloqueadoException(AppException):
     status_code = 403
     detail = "Este módulo ainda está bloqueado."
-
-
-class LicaoNaoIniciadaException(AppException):
-    status_code = 403
-    detail = "Comece a lição deste módulo no chat antes de fazer o questionário."
-    code = "LICAO_NAO_INICIADA"
-
-    def __init__(self, modulo_id: UUID):
-        super().__init__()
-        self.extra = {"modulo_id": str(modulo_id)}
 
 
 class VotoEmConteudoGlobalException(AppException):

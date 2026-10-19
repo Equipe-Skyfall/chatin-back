@@ -22,7 +22,6 @@ from app.repositories.conversa_repository import ConversaRepo
 from app.repositories.materia_repository import MateriaRepo
 from app.repositories.modulo_repository import ModuloRepo
 from app.repositories.perfil_repository import PerfilRepo
-from app.repositories.licao_repository import LicaoRepo
 from app.repositories.progresso_repository import ProgressoRepo
 from app.repositories.questionario_repository import QuestionarioRepo
 from app.repositories.resumo_estudo_repository import ResumoEstudoRepo
@@ -42,7 +41,6 @@ __all__ = [
     "ModuloRepo",
     "QuestionarioRepo",
     "TentativaRepo",
-    "LicaoRepo",
     "ProgressoRepo",
     "ConversaRepo",
     "XpRepo",

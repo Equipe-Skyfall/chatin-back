@@ -11,11 +11,9 @@ logger = logging.getLogger(__name__)
 async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
     if exc.status_code >= 500:
         logger.exception("Unhandled AppException on %s %s", request.method, request.url.path)
-    content: dict = {"detail": exc.detail}
+    content = {"detail": exc.detail}
     if exc.code is not None:
         content["code"] = exc.code
-    if exc.extra:
-        content.update(exc.extra)
     return JSONResponse(status_code=exc.status_code, content=content)
 
 

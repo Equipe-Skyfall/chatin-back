@@ -13,7 +13,6 @@ from app.core.exceptions import (
 from app.deps import (
     AiProviderDep,
     CurrentUserId,
-    LicaoRepo,
     MateriaRepo,
     ModuloRepo,
     ProgressoRepo,
@@ -311,7 +310,6 @@ def obter_modulo(
     modulo_repo: ModuloRepo,
     tema_repo: TemaRepo,
     progresso_repo: ProgressoRepo,
-    licao_repo: LicaoRepo,
 ) -> ModuloDetailOut:
     modulo = modulo_repo.get(modulo_id)
     if modulo is None or modulo.status != MODULO_STATUS_PRONTO:
@@ -336,7 +334,6 @@ def obter_modulo(
         descricao=modulo.descricao,
         estado=estado,
         conteudo=modulo.conteudo or "",
-        start_lesson=licao_repo.existe(user_id, modulo.id),
     )
 
 

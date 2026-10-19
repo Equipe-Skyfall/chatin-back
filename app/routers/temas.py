@@ -11,7 +11,6 @@ from app.core.exceptions import (
 from app.deps import (
     AiProviderDep,
     CurrentUserId,
-    LicaoRepo,
     MateriaRepo,
     ModuloRepo,
     ProgressoRepo,
@@ -144,19 +143,14 @@ def regenerar_tema(
 
 @router.get("/trilha", response_model=TrilhaOut)
 def obter_trilha(
-    user_id: CurrentUserId,
-    materia_repo: MateriaRepo,
-    progresso_repo: ProgressoRepo,
-    licao_repo: LicaoRepo,
+    user_id: CurrentUserId, materia_repo: MateriaRepo, progresso_repo: ProgressoRepo
 ) -> TrilhaOut:
     """The one shared, official curriculum - never a student's own trilha
     (see `GET /materias` for "official + everyone's community trilhas")."""
     materias = materia_repo.list_globais_with_temas_e_modulos()
     modulo_ids = [m.id for materia in materias for tema in materia.temas for m in tema.modulos]
     progresso_rows = progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
-    return montar_trilha(
-        materias, progresso_rows, licao_repo.modulos_iniciados(user_id, modulo_ids)
-    )
+    return montar_trilha(materias, progresso_rows)
 
 
 @router.get("/temas/{tema_id}/status", response_model=TemaStatusOut)

@@ -2,7 +2,6 @@ import pytest
 
 from tests.fakes.fake_ai_provider import FakeAIProvider
 from tests.fakes.in_memory_repositories import (
-    InMemoryLicaoRepository,
     InMemoryProgressoRepository,
     InMemoryQuestionarioRepository,
     InMemoryTentativaRepository,
@@ -38,8 +37,3 @@ def _zerar_status_da_ia():
     status_ia.registrar_sucesso()
     yield
     status_ia.registrar_sucesso()
-
-
-@pytest.fixture
-def licao_repo() -> InMemoryLicaoRepository:
-    return InMemoryLicaoRepository()

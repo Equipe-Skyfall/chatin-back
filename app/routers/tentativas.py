@@ -3,7 +3,6 @@ from uuid import UUID
 from fastapi import APIRouter
 
 from app.core.exceptions import (
-    LicaoNaoIniciadaException,
     ModuloBloqueadoException,
     ModuloNaoEncontradoException,
     QuestionarioNaoEncontradoException,
@@ -15,7 +14,6 @@ from app.deps import (
     AiProviderDep,
     ConversaRepo,
     CurrentUserId,
-    LicaoRepo,
     MateriaRepo,
     ModuloRepo,
     ProgressoRepo,
@@ -52,11 +50,9 @@ def _verificar_modulo_disponivel(
     modulo_repo: ModuloRepo,
     tema_repo: TemaRepo,
     progresso_repo: ProgressoRepo,
-    licao_repo: LicaoRepo,
 ):
     """Shared by `iniciar_tentativa` and `gerar_questionario_personalizado` -
-    both need the módulo ready, unlocked and with its lesson given
-    (`start_lesson`) before starting anything."""
+    both need the módulo ready and unlocked before starting anything."""
     modulo = modulo_repo.get(modulo_id)
     if modulo is None or modulo.status != MODULO_STATUS_PRONTO:
         raise ModuloNaoEncontradoException(modulo_id)
@@ -71,8 +67,6 @@ def _verificar_modulo_disponivel(
     tema_com_modulos = next(t for t in temas_da_materia if t.id == tema.id)
     if estado_modulo(modulo, tema_com_modulos.modulos, tema_est, progresso_map) == "bloqueado":
         raise ModuloBloqueadoException()
-    if not licao_repo.existe(user_id, modulo_id):
-        raise LicaoNaoIniciadaException(modulo_id)
     return modulo
 
 
@@ -101,14 +95,11 @@ def iniciar_tentativa(
     modulo_repo: ModuloRepo,
     tema_repo: TemaRepo,
     progresso_repo: ProgressoRepo,
-    licao_repo: LicaoRepo,
     questionario_repo: QuestionarioRepo,
     tentativa_repo: TentativaRepo,
     settings: SettingsDep,
 ) -> TentativaIniciarOut:
-    _verificar_modulo_disponivel(
-        modulo_id, user_id, modulo_repo, tema_repo, progresso_repo, licao_repo
-    )
+    _verificar_modulo_disponivel(modulo_id, user_id, modulo_repo, tema_repo, progresso_repo)
 
     questionario = questionario_repo.get_by_modulo(modulo_id)
     if questionario is None:
@@ -127,7 +118,6 @@ def gerar_questionario_personalizado(
     modulo_repo: ModuloRepo,
     tema_repo: TemaRepo,
     progresso_repo: ProgressoRepo,
-    licao_repo: LicaoRepo,
     questionario_repo: QuestionarioRepo,
     conversa_repo: ConversaRepo,
     tentativa_repo: TentativaRepo,
@@ -138,9 +128,7 @@ def gerar_questionario_personalizado(
     the student's own conversation about it - unlike `iniciar_tentativa`,
     may call the AI (only for however many questions the pool is short of -
     see `questionario_personalizado_service`) and never affects progress/XP."""
-    _verificar_modulo_disponivel(
-        modulo_id, user_id, modulo_repo, tema_repo, progresso_repo, licao_repo
-    )
+    _verificar_modulo_disponivel(modulo_id, user_id, modulo_repo, tema_repo, progresso_repo)
 
     tentativa, questoes = questionario_personalizado_service.gerar_tentativa_personalizada(
         modulo_id,
@@ -162,7 +150,6 @@ def iniciar_tentativa_tema(
     user_id: CurrentUserId,
     tema_repo: TemaRepo,
     progresso_repo: ProgressoRepo,
-    licao_repo: LicaoRepo,
     questionario_repo: QuestionarioRepo,
     tentativa_repo: TentativaRepo,
     settings: SettingsDep,
@@ -180,16 +167,6 @@ def iniciar_tentativa_tema(
     }
     if estado_tema(tema, temas_da_materia, progresso_map) == "bloqueado":
         raise TemaBloqueadoException()
-
-    modulos_prontos = [
-        m
-        for m in next(t for t in temas_da_materia if t.id == tema.id).modulos
-        if m.status == MODULO_STATUS_PRONTO
-    ]
-    iniciados = licao_repo.modulos_iniciados(user_id, [m.id for m in modulos_prontos])
-    sem_licao = [m for m in sorted(modulos_prontos, key=lambda m: m.ordem) if m.id not in iniciados]
-    if sem_licao:
-        raise LicaoNaoIniciadaException(sem_licao[0].id)
 
     tentativa, questoes = grading_service.iniciar_tentativa_tema(
         tema_id, user_id, settings.TENTATIVA_NUM_QUESTOES, questionario_repo, tentativa_repo

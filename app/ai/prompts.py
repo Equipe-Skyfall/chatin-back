@@ -224,22 +224,6 @@ def prompt_agente_aluno_system(conteudo_modulo: str | None) -> str:
     )
 
 
-# Starts the synthetic user turn that makes the student agent open a módulo
-# with its lesson. It is not something the student typed: the history shown
-# to the front hides turns that begin with it (see `chat_aluno_service`).
-LICAO_MARCADOR = "[[LICAO_INICIAL]]"
-
-
-def prompt_licao_modulo(modulo_titulo: str | None) -> str:
-    titulo = f' "{modulo_titulo}"' if modulo_titulo else ""
-    return (
-        f"{LICAO_MARCADOR} O aluno acabou de abrir o módulo{titulo}. Dê a aula: explique o "
-        "tema de forma completa e organizada, em português, usando o conteúdo do módulo "
-        "como base e exemplos quando ajudarem. Não faça perguntas de verificação nem "
-        "proponha exercícios; só no final pergunte se o aluno tem alguma dúvida."
-    )
-
-
 def prompt_resumir_conversa() -> str:
     return (
         "Resuma a conversa acima entre um aluno e seu professor virtual em no máximo 3 frases, "
