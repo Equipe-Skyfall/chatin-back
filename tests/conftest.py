@@ -1,7 +1,6 @@
 import pytest
 
 from app.ai import consumo
-
 from tests.fakes.fake_ai_provider import FakeAIProvider
 from tests.fakes.in_memory_repositories import (
     InMemoryProgressoRepository,

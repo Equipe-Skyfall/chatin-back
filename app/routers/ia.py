@@ -47,9 +47,7 @@ def consumo_da_ia(
 
     def itens(linhas):
         return [
-            ConsumoItemOut(
-                chave=chave, chamadas=c, falhas=f, tokens_entrada=e, tokens_saida=s
-            )
+            ConsumoItemOut(chave=chave, chamadas=c, falhas=f, tokens_entrada=e, tokens_saida=s)
             for chave, c, f, e, s in linhas
         ]
 
