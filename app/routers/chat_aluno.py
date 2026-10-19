@@ -186,7 +186,9 @@ def iniciar_licao(
             conversa_repo.delete(conversa)
             conversa_repo.commit()
         raise
-    return LicaoRespostaOut(conversa_id=conversa.id, resposta=resposta, ja_enviada=False)
+    return LicaoRespostaOut(
+        conversa_id=conversa.id, resposta=resposta, ja_enviada=resposta is None
+    )
 
 
 @router.get("", response_model=list[ConversaOut])
