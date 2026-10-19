@@ -10,6 +10,7 @@ class TrilhaModuloOut(BaseModel):
     titulo: str
     ordem: int
     estado: EstadoProgresso
+    start_lesson: bool = False
 
 
 class TrilhaTemaOut(BaseModel):

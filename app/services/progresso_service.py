@@ -56,7 +56,11 @@ def _prontos(items: list, status_pronto: str) -> list:
     return sorted((i for i in items if i.status == status_pronto), key=lambda i: i.ordem)
 
 
-def montar_trilha(materias: list[Materia], progresso_rows: list[ProgressoUsuario]) -> TrilhaOut:
+def montar_trilha(
+    materias: list[Materia],
+    progresso_rows: list[ProgressoUsuario],
+    modulos_com_licao: set[uuid.UUID] | frozenset = frozenset(),
+) -> TrilhaOut:
     progresso_map = {p.modulo_id: p for p in progresso_rows}
     materias_out: list[TrilhaMateriaOut] = []
 
@@ -82,7 +86,13 @@ def montar_trilha(materias: list[Materia], progresso_rows: list[ProgressoUsuario
                     ordem=tema.ordem,
                     estado=tema_estado,
                     modulos=[
-                        TrilhaModuloOut(id=m.id, titulo=m.titulo, ordem=m.ordem, estado=e)
+                        TrilhaModuloOut(
+                            id=m.id,
+                            titulo=m.titulo,
+                            ordem=m.ordem,
+                            estado=e,
+                            start_lesson=m.id in modulos_com_licao,
+                        )
                         for m, e in estados_modulos
                     ],
                 )

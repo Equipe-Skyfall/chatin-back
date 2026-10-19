@@ -44,6 +44,23 @@ class ChatRespostaOut(BaseModel):
     tema_criado_id: UUID | None = None
 
 
+class LicaoInput(BaseModel):
+    modulo_id: UUID
+    conversa_id: UUID | None = Field(
+        None,
+        description="Conversa já aberta no módulo; omitido, a lição abre uma conversa nova.",
+    )
+
+
+class LicaoRespostaOut(BaseModel):
+    conversa_id: UUID | None
+    resposta: str | None = Field(
+        None, description="A explicação enviada agora; nula quando `ja_enviada`."
+    )
+    ja_enviada: bool
+    start_lesson: bool = True
+
+
 class ConversaOut(BaseModel):
     model_config = {"from_attributes": True}
 
