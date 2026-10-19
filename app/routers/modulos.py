@@ -34,11 +34,54 @@ from app.schemas.modulo import (
     ModuloUpdate,
     RegenerarModuloRequest,
 )
-from app.schemas.questionario import AlternativaOut, QuestaoAdminOut, QuestaoUpdate
-from app.services import curriculo_service, trilha_pessoal_service
+from app.schemas.questionario import (
+    AlternativaOut,
+    QuestaoAdminOut,
+    QuestaoCreate,
+    QuestaoUpdate,
+    QuestionarioCreate,
+)
+from app.services import curriculo_service, quiz_manual_service, trilha_pessoal_service
 from app.services.progresso_service import estado_modulo, estado_tema
 
 router = APIRouter(tags=["modulos"])
+
+
+def _exigir_acesso_ao_modulo(
+    modulo_id: UUID,
+    payload: TokenPayloadDep,
+    modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
+) -> None:
+    """404 if the módulo doesn't exist; otherwise the same write check every
+    other curriculum route makes (global -> admin, own trilha -> its owner,
+    anyone else's trilha -> 404)."""
+    modulo = modulo_repo.get(modulo_id)
+    if modulo is None:
+        raise ModuloNaoEncontradoException(modulo_id)
+    _, materia = _tema_e_materia_do_modulo(modulo, tema_repo, materia_repo)
+    verificar_acesso_escrita(materia, payload)
+
+
+def _questao_admin_out(questao, resposta_correta: str) -> QuestaoAdminOut:
+    return QuestaoAdminOut(
+        id=questao.id,
+        ordem=questao.ordem,
+        enunciado=questao.enunciado,
+        alternativas=[AlternativaOut(**alt) for alt in questao.alternativas],
+        explicacao=questao.explicacao,
+        resposta_correta=resposta_correta,
+    )
+
+
+def _nova_questao(body: QuestaoCreate) -> quiz_manual_service.NovaQuestao:
+    return quiz_manual_service.NovaQuestao(
+        enunciado=body.enunciado,
+        alternativas=[{"letra": alt.letra, "texto": alt.texto} for alt in body.alternativas],
+        explicacao=body.explicacao,
+        resposta_correta=body.resposta_correta,
+    )
 
 
 def _materia_do_tema(tema: Tema, materia_repo: MateriaRepo) -> Materia:
@@ -413,3 +456,79 @@ def atualizar_questao(
         explicacao=questao.explicacao,
         resposta_correta=resposta_correta,
     )
+
+
+@router.post(
+    "/modulos/{modulo_id}/questionario",
+    response_model=list[QuestaoAdminOut],
+    status_code=status.HTTP_201_CREATED,
+)
+def criar_questionario_manual(
+    modulo_id: UUID,
+    body: QuestionarioCreate,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
+    modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
+    questionario_repo: QuestionarioRepo,
+) -> list[QuestaoAdminOut]:
+    """Writes the módulo's quiz by hand (no AI call). The módulo must not have
+    one yet; the order of `questoes` is the order kept."""
+    _exigir_acesso_ao_modulo(modulo_id, payload, modulo_repo, tema_repo, materia_repo)
+    criadas = quiz_manual_service.criar_questionario(
+        modulo_id, [_nova_questao(q) for q in body.questoes], modulo_repo, questionario_repo
+    )
+    return [_questao_admin_out(questao, resposta) for questao, resposta in criadas]
+
+
+@router.post(
+    "/modulos/{modulo_id}/questoes",
+    response_model=QuestaoAdminOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def adicionar_questao(
+    modulo_id: UUID,
+    body: QuestaoCreate,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
+    modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
+    questionario_repo: QuestionarioRepo,
+) -> QuestaoAdminOut:
+    """Appends one questão to the módulo's existing quiz."""
+    _exigir_acesso_ao_modulo(modulo_id, payload, modulo_repo, tema_repo, materia_repo)
+    questao, resposta = quiz_manual_service.adicionar_questao(
+        modulo_id, _nova_questao(body), modulo_repo, questionario_repo
+    )
+    return _questao_admin_out(questao, resposta)
+
+
+@router.delete("/modulos/{modulo_id}/questoes/{questao_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remover_questao(
+    modulo_id: UUID,
+    questao_id: UUID,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
+    modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
+    questionario_repo: QuestionarioRepo,
+) -> None:
+    _exigir_acesso_ao_modulo(modulo_id, payload, modulo_repo, tema_repo, materia_repo)
+    quiz_manual_service.remover_questao(modulo_id, questao_id, modulo_repo, questionario_repo)
+
+
+@router.delete("/modulos/{modulo_id}/questionario", status_code=status.HTTP_204_NO_CONTENT)
+def remover_questionario(
+    modulo_id: UUID,
+    _user_id: CurrentUserId,
+    payload: TokenPayloadDep,
+    modulo_repo: ModuloRepo,
+    tema_repo: TemaRepo,
+    materia_repo: MateriaRepo,
+    questionario_repo: QuestionarioRepo,
+) -> None:
+    _exigir_acesso_ao_modulo(modulo_id, payload, modulo_repo, tema_repo, materia_repo)
+    quiz_manual_service.remover_questionario(modulo_id, modulo_repo, questionario_repo)

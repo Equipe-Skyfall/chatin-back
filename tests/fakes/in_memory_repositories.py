@@ -206,6 +206,28 @@ class InMemoryQuestionarioRepository:
     def add_gabarito(self, gabarito) -> None:
         self.gabaritos[gabarito.questao_id] = gabarito.resposta_correta
 
+    def get_questao_by_id(self, questao_id: uuid.UUID) -> Questao | None:
+        return self.questoes.get(questao_id)
+
+    def proxima_ordem(self, questionario_id: uuid.UUID) -> int:
+        ordens = [q.ordem for q in self.questoes.values() if q.questionario_id == questionario_id]
+        return max(ordens) + 1 if ordens else 0
+
+    def delete(self, entity) -> None:
+        """A questão (its gabarito goes with it) or a whole questionário (and
+        everything in it), mirroring the real cascade."""
+        if isinstance(entity, Questao):
+            self.questoes.pop(entity.id, None)
+            self.gabaritos.pop(entity.id, None)
+            return
+        self._questionarios_by_modulo.pop(entity.modulo_id, None)
+        for questao_id in [q.id for q in self.questoes.values() if q.questionario_id == entity.id]:
+            self.questoes.pop(questao_id)
+            self.gabaritos.pop(questao_id, None)
+
+    def rollback(self) -> None:
+        pass
+
     def flush(self) -> None:
         pass
 

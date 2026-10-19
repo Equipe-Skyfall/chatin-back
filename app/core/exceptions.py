@@ -126,6 +126,29 @@ class OrdemDuplicadaException(AppException):
         )
 
 
+class QuestionarioJaExisteException(AppException):
+    status_code = 409
+    detail = (
+        "Este módulo já possui um questionário - adicione questões a ele "
+        "ou remova-o antes de criar outro."
+    )
+
+
+class QuestionarioSemQuestoesException(AppException):
+    status_code = 409
+    detail = (
+        "Um questionário precisa ter ao menos uma questão - para removê-las todas, "
+        "remova o questionário."
+    )
+
+
+class LimiteQuestoesExcedidoException(AppException):
+    status_code = 400
+
+    def __init__(self, limite: int):
+        super().__init__(f"Um questionário pode ter no máximo {limite} questões.")
+
+
 class ConversaOcupadaException(AppException):
     status_code = 409
     detail = "Já existe uma mensagem sendo processada nesta conversa - aguarde a resposta anterior."
