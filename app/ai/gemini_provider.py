@@ -16,8 +16,8 @@ from typing import Any
 
 from google import genai
 from google.genai import types
-from tenacity import retry, stop_after_attempt, wait_exponential
 
+from app.ai import resiliencia
 from app.ai.base import AIProvider
 from app.ai.gemini_schemas import (
     PLANO_MODULOS_RESPONSE_SCHEMA,
@@ -59,9 +59,7 @@ from app.core.exceptions import AgenteLimiteExcedidoException, ProvedorIAIndispo
 
 logger = logging.getLogger(__name__)
 
-_retry_transient = retry(
-    stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8), reraise=True
-)
+_retry_transient = resiliencia.retry_transiente(tentativas=3, espera_max=8)
 
 # The admin agent's function-calling call is, empirically, much flakier than
 # our other Gemini calls: with ~19 tool declarations attached, it returns a
@@ -69,15 +67,15 @@ _retry_transient = retry(
 # output tokens) roughly two-thirds of the time - a Gemini-side quirk with
 # large tool lists, not something request-shape changes on our end fixed.
 # Compensate with more attempts than `_retry_transient` gives.
-_retry_agente = retry(
-    stop=stop_after_attempt(10), wait=wait_exponential(multiplier=1, min=1, max=6), reraise=True
-)
+_retry_agente = resiliencia.retry_transiente(tentativas=10, espera_max=6)
 
 
 class GeminiProvider(AIProvider):
     def __init__(self, settings: Settings):
         self._settings = settings
-        self._client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        self._client = genai.Client(
+            api_key=settings.GEMINI_API_KEY, http_options=resiliencia.opcoes_http(settings)
+        )
 
     @_retry_transient
     def buscar_fontes(

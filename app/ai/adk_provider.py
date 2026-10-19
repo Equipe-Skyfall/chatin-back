@@ -53,8 +53,8 @@ from google.adk.sessions import DatabaseSessionService
 from google.adk.tools import google_search
 from google.genai import types as genai_types
 from pydantic import ValidationError
-from tenacity import retry, stop_after_attempt, wait_exponential
 
+from app.ai import resiliencia
 from app.ai.adk_schemas import PlanoModulosSchema, QuestionarioSchema, ResumoEstudoSchema
 from app.ai.adk_tools import construir_tools, construir_tools_aluno
 from app.ai.base import AIProvider
@@ -92,9 +92,7 @@ from app.core.exceptions import AgenteLimiteExcedidoException, ProvedorIAIndispo
 
 logger = logging.getLogger(__name__)
 
-_retry_transient = retry(
-    stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8), reraise=True
-)
+_retry_transient = resiliencia.retry_transiente(tentativas=3, espera_max=8)
 
 _APP_NAME = "chatin"
 _USER_ID = "system"  # sessions are keyed by conversa_id (already globally
@@ -109,28 +107,37 @@ class AdkProvider(AIProvider):
         # here so `AI_PROVIDER=adk` covers 100% of `AIProvider` from Fase 1 on.
         self._gemini = GeminiProvider(settings)
 
+        # Bounds every ADK agent's model call (see GEMINI_TIMEOUT_SECONDS).
+        self._config_http = genai_types.GenerateContentConfig(
+            http_options=resiliencia.opcoes_http(settings)
+        )
+
         self._questionario_agent = LlmAgent(
             name="questionario_agent",
             model=settings.GEMINI_MODEL_QUESTIONARIO,
             instruction="Você gera questionários de múltipla escolha no estilo ENEM.",
             output_schema=QuestionarioSchema,
+            generate_content_config=self._config_http,
         )
         self._planejamento_agent = LlmAgent(
             name="planejamento_agent",
             model=settings.GEMINI_MODEL_CONTEUDO,
             instruction="Você planeja trilhas de estudo dividindo temas em módulos.",
             output_schema=PlanoModulosSchema,
+            generate_content_config=self._config_http,
         )
         self._conteudo_agent = LlmAgent(
             name="conteudo_agent",
             model=settings.GEMINI_MODEL_CONTEUDO,
             instruction="Você é um professor gerando material didático.",
+            generate_content_config=self._config_http,
         )
         self._fontes_agent = LlmAgent(
             name="fontes_agent",
             model=settings.GEMINI_MODEL_SEARCH,
             instruction="Você é um assistente de pesquisa educacional.",
             tools=[google_search],
+            generate_content_config=self._config_http,
         )
         # `google_search` can't share an agent with function tools, so the
         # student chat reaches it through `pesquisar_web` (called from the
@@ -140,12 +147,14 @@ class AdkProvider(AIProvider):
             model=settings.GEMINI_MODEL_SEARCH,
             instruction="Você é um assistente de pesquisa educacional para estudantes do ENEM.",
             tools=[google_search],
+            generate_content_config=self._config_http,
         )
         self._resumo_estudo_agent = LlmAgent(
             name="resumo_estudo_agent",
             model=settings.GEMINI_MODEL_PROFESSOR,
             instruction="Você monta resumos de estudos preparatórios para alunos do ENEM.",
             output_schema=ResumoEstudoSchema,
+            generate_content_config=self._config_http,
         )
         # The admin agent's own session store - persistent, unlike the
         # throwaway sessions the other methods above use, since its history
@@ -426,6 +435,7 @@ class AdkProvider(AIProvider):
             model=self._settings.GEMINI_MODEL_AGENTE,
             instruction=AGENTE_ADMIN_SYSTEM_INSTRUCTION,
             tools=construir_tools(ctx),
+            generate_content_config=self._config_http,
         )
         return self._executar_agente(mensagens, ctx.conversa_id, agente)
 
@@ -443,6 +453,7 @@ class AdkProvider(AIProvider):
             model=self._settings.GEMINI_MODEL_AGENTE,
             instruction=prompt_agente_aluno_system(conteudo_modulo),
             tools=construir_tools_aluno(ctx),
+            generate_content_config=self._config_http,
         )
         return self._executar_agente(mensagens, ctx.conversa_id, agente)
 

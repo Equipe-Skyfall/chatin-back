@@ -19,7 +19,8 @@ def _resultado(correta: bool, enunciado: str = "Questão de teste") -> RespostaR
 def test_sem_erros_nao_chama_a_ia(fake_ai_provider):
     feedback = feedback_tentativa_service.gerar_feedback([_resultado(True)], fake_ai_provider)
 
-    assert feedback is None
+    assert feedback.texto is None
+    assert feedback.indisponivel is False  # nothing to explain is not a failure
     assert fake_ai_provider.gerar_feedback_erros_calls == 0
 
 
@@ -28,12 +29,13 @@ def test_com_erros_chama_a_ia_apenas_com_os_errados(fake_ai_provider):
         [_resultado(True), _resultado(False), _resultado(False)], fake_ai_provider
     )
 
-    assert feedback == "Feedback de teste."
+    assert feedback.texto == "Feedback de teste."
+    assert feedback.indisponivel is False
     assert fake_ai_provider.gerar_feedback_erros_calls == 1
     assert len(fake_ai_provider.erros_recebidos[0]) == 2
 
 
-def test_falha_da_ia_degrada_para_none(fake_ai_provider, monkeypatch):
+def test_falha_da_ia_degrada_para_sem_texto_e_marca_indisponivel(fake_ai_provider, monkeypatch):
     def _falhar(_erros):
         raise ProvedorIAIndisponivelException("provedor fora do ar")
 
@@ -41,4 +43,7 @@ def test_falha_da_ia_degrada_para_none(fake_ai_provider, monkeypatch):
 
     # Não pode propagar: a correção da tentativa já aconteceu e não pode
     # ser desfeita por causa do feedback (RNF6).
-    assert feedback_tentativa_service.gerar_feedback([_resultado(False)], fake_ai_provider) is None
+    feedback = feedback_tentativa_service.gerar_feedback([_resultado(False)], fake_ai_provider)
+
+    assert feedback.texto is None
+    assert feedback.indisponivel is True

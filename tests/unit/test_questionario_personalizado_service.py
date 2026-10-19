@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from app.core.exceptions import GeracaoConteudoFalhouException
+from app.core.exceptions import GeracaoConteudoFalhouException, ProvedorIAIndisponivelException
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, TIPO_ALUNO, Conversa, Mensagem
 from app.services import questionario_personalizado_service
 from tests.builders.modulo_builder import ModuloBuilder
@@ -306,3 +306,50 @@ def test_nao_conta_para_progresso_ao_responder(questionario_repo, fake_ai_provid
     # sendo módulo-scoped o progresso não seria atualizado.
     assert tentativa.pratica is True
     assert tentativa.questionario_id == questionario.id
+
+
+def _ia_fora_do_ar(*_args, **_kwargs):
+    raise ProvedorIAIndisponivelException("provedor fora do ar")
+
+
+def test_ia_indisponivel_segue_com_as_questoes_que_o_pool_ja_tem(
+    questionario_repo, fake_ai_provider, monkeypatch
+):
+    _, questionario, modulo_repo = _setup(questionario_repo, num_questoes_existentes=3)
+    monkeypatch.setattr(fake_ai_provider, "gerar_questionario", _ia_fora_do_ar)
+
+    tentativa, questoes = questionario_personalizado_service.gerar_tentativa_personalizada(
+        questionario.modulo_id,
+        "user-1",
+        12,
+        5,
+        modulo_repo,
+        questionario_repo,
+        InMemoryConversaRepository(),
+        InMemoryTentativaRepository(),
+        fake_ai_provider,
+    )
+
+    assert len(questoes) == 3  # tudo o que o pool tem, menos que as 5 pedidas
+    assert tentativa.pratica is True
+    assert len(questionario_repo.get_questao_ids_pool(questionario.id)) == 3
+
+
+def test_ia_indisponivel_sem_nenhuma_questao_no_pool_continua_sendo_erro(
+    questionario_repo, fake_ai_provider, monkeypatch
+):
+    _, questionario, modulo_repo = _setup(questionario_repo, num_questoes_existentes=0)
+    monkeypatch.setattr(fake_ai_provider, "gerar_questionario", _ia_fora_do_ar)
+
+    with pytest.raises(ProvedorIAIndisponivelException):
+        questionario_personalizado_service.gerar_tentativa_personalizada(
+            questionario.modulo_id,
+            "user-1",
+            12,
+            5,
+            modulo_repo,
+            questionario_repo,
+            InMemoryConversaRepository(),
+            InMemoryTentativaRepository(),
+            fake_ai_provider,
+        )

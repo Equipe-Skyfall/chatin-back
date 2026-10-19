@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     GEMINI_MODEL_AGENTE: str = "gemini-2.5-flash"
     GEMINI_MODEL_PROFESSOR: str = "gemini-2.5-flash"
 
+    # How long a single request to Gemini may take before it is abandoned and
+    # reported as a timeout (see app.ai.resiliencia). Without a bound, a hung
+    # call holds a worker until the platform kills the whole request.
+    GEMINI_TIMEOUT_SECONDS: float = 60.0
+
     # Content generation tuning
     QUESTIONARIO_POOL_SIZE: int = 12
     TENTATIVA_NUM_QUESTOES: int = 5
