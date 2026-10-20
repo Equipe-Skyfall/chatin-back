@@ -32,9 +32,7 @@ def test_criar_materia_sem_owner_e_global():
 def test_criar_materia_com_owner_e_pessoal():
     repo = _FakeMateriaRepository()
 
-    materia = curriculo_service.criar_materia(
-        "Extensivo ENEM", None, repo, owner_user_id="user-1"
-    )
+    materia = curriculo_service.criar_materia("Extensivo ENEM", None, repo, owner_user_id="user-1")
 
     assert materia.owner_user_id == "user-1"
 
@@ -43,9 +41,7 @@ def test_aluno_pode_criar_varias_trilhas_sem_limite():
     repo = _FakeMateriaRepository()
 
     for i in range(10):
-        materia = curriculo_service.criar_materia(
-            f"Trilha {i}", None, repo, owner_user_id="user-1"
-        )
+        materia = curriculo_service.criar_materia(f"Trilha {i}", None, repo, owner_user_id="user-1")
         assert materia.owner_user_id == "user-1"
 
     assert len(repo.materias) == 10

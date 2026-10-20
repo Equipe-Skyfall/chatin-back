@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
+from app.ai.disponibilidade import status_ia
 from app.core.exceptions import (
     LicaoNaoIniciadaException,
     ModuloBloqueadoException,
@@ -71,7 +72,8 @@ def _verificar_modulo_disponivel(
     tema_com_modulos = next(t for t in temas_da_materia if t.id == tema.id)
     if estado_modulo(modulo, tema_com_modulos.modulos, tema_est, progresso_map) == "bloqueado":
         raise ModuloBloqueadoException()
-    if not licao_repo.existe(user_id, modulo_id):
+    # With the AI down the lesson cannot be given, so it must not hold the quiz back.
+    if status_ia.disponivel() and not licao_repo.existe(user_id, modulo_id):
         raise LicaoNaoIniciadaException(modulo_id)
     return modulo
 
@@ -188,7 +190,7 @@ def iniciar_tentativa_tema(
     ]
     iniciados = licao_repo.modulos_iniciados(user_id, [m.id for m in modulos_prontos])
     sem_licao = [m for m in sorted(modulos_prontos, key=lambda m: m.ordem) if m.id not in iniciados]
-    if sem_licao:
+    if sem_licao and status_ia.disponivel():  # AI down: the lesson can't be given, don't block
         raise LicaoNaoIniciadaException(sem_licao[0].id)
 
     tentativa, questoes = grading_service.iniciar_tentativa_tema(

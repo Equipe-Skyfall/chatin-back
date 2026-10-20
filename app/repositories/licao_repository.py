@@ -1,23 +1,36 @@
+import logging
 import uuid
 from typing import Annotated
 
 from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.session import DbSession
 from app.models.licao import LicaoIniciada
 from app.repositories.base import SqlAlchemyRepository
 
+logger = logging.getLogger(__name__)
+
 
 class LicaoRepository(SqlAlchemyRepository[LicaoIniciada]):
     model = LicaoIniciada
+
+    # The lesson is an extra on top of the trail, the quiz and the chat, never a
+    # reason for them to stop working: if the flag cannot be read (table not
+    # migrated yet, database hiccup) the reads below answer "lesson already
+    # given", which keeps everything open and makes `/chat/licao` a no-op.
 
     def existe(self, user_id: str, modulo_id: uuid.UUID) -> bool:
         stmt = select(LicaoIniciada.id).where(
             LicaoIniciada.user_id == user_id, LicaoIniciada.modulo_id == modulo_id
         )
-        return self.db.execute(stmt).first() is not None
+        try:
+            return self.db.execute(stmt).first() is not None
+        except SQLAlchemyError:
+            self._leitura_falhou()
+            return True
 
     def modulos_iniciados(self, user_id: str, modulo_ids: list[uuid.UUID]) -> set[uuid.UUID]:
         if not modulo_ids:
@@ -25,7 +38,15 @@ class LicaoRepository(SqlAlchemyRepository[LicaoIniciada]):
         stmt = select(LicaoIniciada.modulo_id).where(
             LicaoIniciada.user_id == user_id, LicaoIniciada.modulo_id.in_(modulo_ids)
         )
-        return set(self.db.execute(stmt).scalars().all())
+        try:
+            return set(self.db.execute(stmt).scalars().all())
+        except SQLAlchemyError:
+            self._leitura_falhou()
+            return set(modulo_ids)
+
+    def _leitura_falhou(self) -> None:
+        logger.warning("não foi possível ler licoes_iniciadas; liberando o módulo", exc_info=True)
+        self.db.rollback()  # a failed statement poisons the session's transaction
 
     def marcar(self, user_id: str, modulo_id: uuid.UUID) -> None:
         """Idempotent: two tabs finishing the lesson at once don't conflict."""

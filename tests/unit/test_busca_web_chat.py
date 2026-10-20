@@ -216,7 +216,10 @@ def test_anexa_fontes_ao_historico_adk_pelo_texto_da_resposta():
     mensagens = [
         Mensagem(papel=PAPEL_USUARIO, conteudo="pergunta", ordem=0),
         Mensagem(
-            papel=PAPEL_ASSISTENTE, conteudo="resposta", ordem=1, fontes=fontes,
+            papel=PAPEL_ASSISTENTE,
+            conteudo="resposta",
+            ordem=1,
+            fontes=fontes,
             pergunta_id=pergunta_id,
         ),  # fmt: skip
     ]

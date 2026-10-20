@@ -207,9 +207,7 @@ def test_meu_desempenho_filtra_por_nome_inexistente():
     materia_repo.seed(Materia(id=uuid.uuid4(), nome="Física", owner_user_id=None))
     ctx = _ctx(materia_repo=materia_repo)
 
-    resultado = executar_ferramenta_aluno(
-        "meu_desempenho", {"materia_nome": "Biologia"}, ctx
-    )
+    resultado = executar_ferramenta_aluno("meu_desempenho", {"materia_nome": "Biologia"}, ctx)
 
     assert "Nenhuma matéria encontrada" in resultado
 

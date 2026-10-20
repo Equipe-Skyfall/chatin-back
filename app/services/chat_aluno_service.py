@@ -12,15 +12,19 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 
 from app.ai.base import AIProvider
+from app.ai.disponibilidade import status_ia
 from app.ai.prompts import LICAO_MARCADOR, prompt_licao_modulo
 from app.ai.schemas import FerramentaContexto, MensagemAgente, MensagemHistorico
 from app.core.exceptions import ConversaOcupadaException, ProvedorIAIndisponivelException
+from app.core.falha_ia import TipoFalhaIA
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, Conversa, Mensagem
 from app.repositories.conversa_repository import ConversaRepository
 from app.repositories.licao_repository import LicaoRepository
 from app.repositories.modulo_repository import ModuloRepository
 
 logger = logging.getLogger(__name__)
+
+_FALHAS_QUE_INDICAM_IA_FORA = {TipoFalhaIA.LIMITE, TipoFalhaIA.INDISPONIVEL, TipoFalhaIA.TIMEOUT}
 
 
 def _mensagem_para_historico(mensagem: Mensagem) -> MensagemAgente:
@@ -46,9 +50,7 @@ def enviar_mensagem(
     def _salvar(papel: str, conteudo: str, **extras) -> Mensagem:
         ordem = conversa_repo.proxima_ordem(conversa.id)
         mensagem = conversa_repo.add_mensagem(
-            Mensagem(
-                conversa_id=conversa.id, papel=papel, conteudo=conteudo, ordem=ordem, **extras
-            )
+            Mensagem(conversa_id=conversa.id, papel=papel, conteudo=conteudo, ordem=ordem, **extras)
         )
         conversa_repo.commit()
         return mensagem
@@ -108,7 +110,15 @@ def enviar_licao(
         return None
 
     pedido = MensagemAgente(papel=PAPEL_USUARIO, conteudo=prompt_licao_modulo(modulo.titulo))
-    resposta = ai_provider.conversar_com_agente_aluno([pedido], modulo.conteudo, ctx)
+    try:
+        resposta = ai_provider.conversar_com_agente_aluno([pedido], modulo.conteudo, ctx)
+    except ProvedorIAIndisponivelException as exc:
+        # The student is told the AI is down and the quiz stops asking for the
+        # lesson (see `status_ia`); the flag stays off so a later open retries.
+        if exc.tipo in _FALHAS_QUE_INDICAM_IA_FORA:
+            status_ia.marcar_indisponivel()
+        raise
+    status_ia.registrar_sucesso()
 
     ordem = conversa_repo.proxima_ordem(conversa.id)
     try:
@@ -133,9 +143,7 @@ def anexar_fontes_ao_historico(
     nothing about the sources shown under a reply - they live on the
     `mensagens` rows. Re-attaches them by matching the assistant text, which
     is the same string in both places."""
-    por_conteudo = {
-        m.conteudo: m for m in mensagens if m.papel == PAPEL_ASSISTENTE and m.fontes
-    }
+    por_conteudo = {m.conteudo: m for m in mensagens if m.papel == PAPEL_ASSISTENTE and m.fontes}
     resultado = []
     for item in historico:
         if item.papel == PAPEL_USUARIO and (item.conteudo or "").startswith(LICAO_MARCADOR):

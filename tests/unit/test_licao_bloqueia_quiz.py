@@ -78,3 +78,44 @@ def test_handler_devolve_code_e_modulo_id():
     assert resposta.json()["code"] == "LICAO_NAO_INICIADA"
     assert resposta.json()["modulo_id"] == str(modulo.id)
     assert resposta.json()["detail"]
+
+
+def test_com_a_ia_fora_do_ar_o_quiz_abre_sem_a_licao(progresso_repo, licao_repo):
+    from app.ai.disponibilidade import status_ia
+
+    modulo, modulo_repo, tema_repo = _cenario()
+    status_ia.marcar_indisponivel()
+
+    liberado = _verificar_modulo_disponivel(
+        modulo.id, "user-1", modulo_repo, tema_repo, progresso_repo, licao_repo
+    )
+
+    assert liberado.id == modulo.id
+
+
+def test_leitura_da_licao_que_falha_libera_em_vez_de_quebrar(caplog):
+    """Tabela ainda não migrada (ou banco instável): trilha, quiz e chat seguem."""
+    import uuid
+
+    from sqlalchemy.exc import ProgrammingError
+
+    from app.repositories.licao_repository import LicaoRepository
+
+    class _DbQuebrado:
+        rollbacks = 0
+
+        def execute(self, *_a, **_k):
+            raise ProgrammingError(
+                "SELECT", {}, Exception('relation "licoes_iniciadas" does not exist')
+            )
+
+        def rollback(self):
+            self.rollbacks += 1
+
+    db = _DbQuebrado()
+    repo = LicaoRepository(db)
+    modulo_ids = [uuid.uuid4(), uuid.uuid4()]
+
+    assert repo.existe("user-1", modulo_ids[0]) is True
+    assert repo.modulos_iniciados("user-1", modulo_ids) == set(modulo_ids)
+    assert db.rollbacks == 2
