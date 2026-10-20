@@ -221,6 +221,8 @@ class FerramentaContexto:
     user_id: str
     conversa_id: uuid.UUID
     background_tasks: BackgroundTasks | None = None
+    # Monthly cap on trilhas the student may create (the `criar_minha_trilha` tool).
+    limite_trilhas_mes: int = 3
     # Filled by the student agent's `buscar_fontes_web` tool during a turn;
     # `chat_aluno_service.enviar_mensagem` persists it with the reply.
     fontes_web: list[FonteWeb] = field(default_factory=list)

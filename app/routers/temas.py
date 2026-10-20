@@ -147,9 +147,10 @@ def obter_trilha(
     progresso_repo: ProgressoRepo,
     licao_repo: LicaoRepo,
 ) -> TrilhaOut:
-    """The one shared, official curriculum - never a student's own trilha
-    (see `GET /materias` for "official + everyone's community trilhas")."""
-    materias = materia_repo.list_globais_with_temas_e_modulos()
+    """The trilhas this student studies: the shared, verified curriculum, their
+    own trilhas and the community ones they adopted (`POST /trilhas/{id}/estudar`).
+    Never another student's trilha they have not adopted."""
+    materias = materia_repo.list_minhas_e_globais_with_temas_e_modulos(user_id)
     modulo_ids = [m.id for materia in materias for tema in materia.temas for m in tema.modulos]
     progresso_rows = progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
     return montar_trilha(

@@ -18,6 +18,7 @@ from app.deps import (
     SettingsDep,
     TemaRepo,
     TentativaRepo,
+    TrilhaEstudandoRepo,
     VotoRepo,
     XpRepo,
 )
@@ -83,6 +84,7 @@ def enviar_mensagem(
         voto_repo=voto_repo,
         ai_provider=ai_provider,
         pool_size=settings.QUESTIONARIO_POOL_SIZE,
+        limite_trilhas_mes=settings.TRILHAS_POR_MES,
         user_id=user_id,
         conversa_id=conversa.id,
         background_tasks=background_tasks,
@@ -119,6 +121,7 @@ def iniciar_licao(
     tentativa_repo: TentativaRepo,
     voto_repo: VotoRepo,
     licao_repo: LicaoRepo,
+    trilha_estudando_repo: TrilhaEstudandoRepo,
     ai_provider: AiProviderDep,
     settings: SettingsDep,
     background_tasks: BackgroundTasks,
@@ -129,7 +132,13 @@ def iniciar_licao(
     (`conversa_id` null when they have none yet)."""
     # Same access the quiz needs: ready, unlocked and visible in this student's trail.
     modulo = verificar_acesso_ao_modulo(
-        body.modulo_id, user_id, modulo_repo, tema_repo, progresso_repo, materia_repo
+        body.modulo_id,
+        user_id,
+        modulo_repo,
+        tema_repo,
+        progresso_repo,
+        materia_repo,
+        trilha_estudando_repo,
     )
 
     if licao_repo.existe(user_id, modulo.id):
@@ -168,6 +177,7 @@ def iniciar_licao(
         voto_repo=voto_repo,
         ai_provider=ai_provider,
         pool_size=settings.QUESTIONARIO_POOL_SIZE,
+        limite_trilhas_mes=settings.TRILHAS_POR_MES,
         user_id=user_id,
         conversa_id=conversa.id,
         background_tasks=background_tasks,
