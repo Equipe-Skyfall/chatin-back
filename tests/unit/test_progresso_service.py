@@ -208,3 +208,16 @@ def test_montar_progresso_inclui_desempenho_por_tema():
     assert por_tema[tema_com_dados.id].total_respostas == 10
     assert por_tema[tema_sem_dados.id].nivel == "medio"
     assert por_tema[tema_sem_dados.id].total_respostas == 0
+
+
+def test_montar_trilha_marca_start_lesson_dos_modulos_com_licao():
+    tema_id = uuid.uuid4()
+    m1 = ModuloBuilder().com_tema_id(tema_id).com_ordem(0).build()
+    m2 = ModuloBuilder().com_tema_id(tema_id).com_ordem(1).build()
+    tema = TemaBuilder().com_id(tema_id).com_modulos([m1, m2]).build()
+    materia = MateriaBuilder().com_temas([tema]).build()
+
+    trilha = progresso_service.montar_trilha([materia], [], {m1.id})
+
+    modulos = trilha.materias[0].temas[0].modulos
+    assert [(m.id, m.start_lesson) for m in modulos] == [(m1.id, True), (m2.id, False)]

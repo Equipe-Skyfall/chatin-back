@@ -370,6 +370,23 @@ class InMemoryProgressoRepository:
         pass
 
 
+class InMemoryLicaoRepository:
+    def __init__(self):
+        self.iniciadas: set[tuple[str, uuid.UUID]] = set()
+
+    def existe(self, user_id: str, modulo_id: uuid.UUID) -> bool:
+        return (user_id, modulo_id) in self.iniciadas
+
+    def modulos_iniciados(self, user_id: str, modulo_ids: list[uuid.UUID]) -> set[uuid.UUID]:
+        return {mid for (uid, mid) in self.iniciadas if uid == user_id and mid in modulo_ids}
+
+    def marcar(self, user_id: str, modulo_id: uuid.UUID) -> None:
+        self.iniciadas.add((user_id, modulo_id))
+
+    def commit(self) -> None:
+        pass
+
+
 class InMemoryXpRepository:
     def __init__(self):
         self.eventos: list = []

@@ -21,6 +21,7 @@ from app.core.exceptions import NaoAutenticadoException
 from app.core.security import TokenPayload, decode_token, require_admin_role
 from app.repositories.conversa_repository import ConversaRepo
 from app.repositories.ia_consumo_repository import IaConsumoRepo
+from app.repositories.licao_repository import LicaoRepo
 from app.repositories.materia_repository import MateriaRepo
 from app.repositories.modulo_repository import ModuloRepo
 from app.repositories.perfil_repository import PerfilRepo
@@ -43,6 +44,7 @@ __all__ = [
     "ModuloRepo",
     "QuestionarioRepo",
     "TentativaRepo",
+    "LicaoRepo",
     "ProgressoRepo",
     "ConversaRepo",
     "XpRepo",

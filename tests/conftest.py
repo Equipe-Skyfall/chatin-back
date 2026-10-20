@@ -3,6 +3,7 @@ import pytest
 from app.ai import consumo
 from tests.fakes.fake_ai_provider import FakeAIProvider
 from tests.fakes.in_memory_repositories import (
+    InMemoryLicaoRepository,
     InMemoryProgressoRepository,
     InMemoryQuestionarioRepository,
     InMemoryTentativaRepository,
@@ -48,3 +49,8 @@ def consumo_registros():
     consumo.definir_gravador(registros.append)
     yield registros
     consumo.definir_gravador(None)
+
+
+@pytest.fixture
+def licao_repo() -> InMemoryLicaoRepository:
+    return InMemoryLicaoRepository()
