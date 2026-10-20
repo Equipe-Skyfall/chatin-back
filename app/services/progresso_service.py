@@ -274,27 +274,32 @@ def atualizar_progresso(
     return progresso
 
 
+def materia_visivel_ao_aluno(tema: Tema, user_id: str, materia_repo: MateriaRepository) -> bool:
+    """The tema's matéria is global or the student's own - another student's
+    custom matéria must look like it doesn't exist."""
+    materia = materia_repo.get(tema.materia_id)
+    return materia is not None and materia.owner_user_id in (None, user_id)
+
+
 def verificar_acesso_ao_modulo(
     modulo_id: uuid.UUID,
     user_id: str,
     modulo_repo: ModuloRepository,
     tema_repo: TemaRepository,
     progresso_repo: ProgressoRepository,
-    materia_repo: MateriaRepository | None = None,
+    materia_repo: MateriaRepository,
 ) -> Modulo:
-    """The módulo must be ready and unlocked for this student in their trail.
-    With `materia_repo` it also has to belong to a matéria they can see (global
-    or their own) - another student's custom matéria answers "not found", like
-    a missing módulo, so its existence isn't revealed."""
+    """The módulo must be ready, unlocked for this student in their trail and in
+    a matéria they can see (global or their own). Another student's custom
+    matéria answers "not found", like a missing módulo, so its existence isn't
+    revealed."""
     modulo = modulo_repo.get(modulo_id)
     if modulo is None or modulo.status != MODULO_STATUS_PRONTO:
         raise ModuloNaoEncontradoException(modulo_id)
 
     tema = tema_repo.get(modulo.tema_id)
-    if materia_repo is not None:
-        materia = materia_repo.get(tema.materia_id)
-        if materia is None or materia.owner_user_id not in (None, user_id):
-            raise ModuloNaoEncontradoException(modulo_id)
+    if not materia_visivel_ao_aluno(tema, user_id, materia_repo):
+        raise ModuloNaoEncontradoException(modulo_id)
 
     temas_da_materia = tema_repo.list_by_materia_with_modulos(tema.materia_id)
     modulo_ids = [m.id for t in temas_da_materia for m in t.modulos]

@@ -37,7 +37,13 @@ def test_quiz_do_modulo_exige_a_licao(progresso_repo, licao_repo):
 
     with pytest.raises(LicaoNaoIniciadaException) as erro:
         _verificar_modulo_disponivel(
-            modulo.id, "user-1", modulo_repo, tema_repo, progresso_repo, licao_repo
+            modulo.id,
+            "user-1",
+            modulo_repo,
+            tema_repo,
+            progresso_repo,
+            licao_repo,
+            _MateriaRepo(None),
         )
 
     assert erro.value.code == "LICAO_NAO_INICIADA"
@@ -49,7 +55,7 @@ def test_quiz_do_modulo_libera_depois_da_licao(progresso_repo, licao_repo):
     licao_repo.marcar("user-1", modulo.id)
 
     liberado = _verificar_modulo_disponivel(
-        modulo.id, "user-1", modulo_repo, tema_repo, progresso_repo, licao_repo
+        modulo.id, "user-1", modulo_repo, tema_repo, progresso_repo, licao_repo, _MateriaRepo(None)
     )
 
     assert liberado.id == modulo.id
@@ -61,7 +67,13 @@ def test_licao_de_outro_aluno_nao_libera(progresso_repo, licao_repo):
 
     with pytest.raises(LicaoNaoIniciadaException):
         _verificar_modulo_disponivel(
-            modulo.id, "user-1", modulo_repo, tema_repo, progresso_repo, licao_repo
+            modulo.id,
+            "user-1",
+            modulo_repo,
+            tema_repo,
+            progresso_repo,
+            licao_repo,
+            _MateriaRepo(None),
         )
 
 
@@ -89,7 +101,7 @@ def test_com_a_ia_fora_do_ar_o_quiz_abre_sem_a_licao(progresso_repo, licao_repo)
     status_ia.marcar_indisponivel()
 
     liberado = _verificar_modulo_disponivel(
-        modulo.id, "user-1", modulo_repo, tema_repo, progresso_repo, licao_repo
+        modulo.id, "user-1", modulo_repo, tema_repo, progresso_repo, licao_repo, _MateriaRepo(None)
     )
 
     assert liberado.id == modulo.id
@@ -187,3 +199,59 @@ def test_acesso_a_licao_vale_para_materia_global_e_propria(progresso_repo):
             modulo.id, "user-1", modulo_repo, tema_repo, progresso_repo, _MateriaRepo(dono)
         )
         assert liberado.id == modulo.id
+
+
+def test_quiz_do_modulo_nega_materia_de_outro_aluno_mesmo_com_a_licao_dada(
+    progresso_repo, licao_repo
+):
+    modulo, modulo_repo, tema_repo = _cenario()
+    licao_repo.marcar("user-1", modulo.id)
+
+    with pytest.raises(ModuloNaoEncontradoException):
+        _verificar_modulo_disponivel(
+            modulo.id,
+            "user-1",
+            modulo_repo,
+            tema_repo,
+            progresso_repo,
+            licao_repo,
+            _MateriaRepo("outro"),
+        )
+
+
+def test_quiz_do_modulo_vale_para_materia_propria(progresso_repo, licao_repo):
+    modulo, modulo_repo, tema_repo = _cenario()
+    licao_repo.marcar("user-1", modulo.id)
+
+    liberado = _verificar_modulo_disponivel(
+        modulo.id,
+        "user-1",
+        modulo_repo,
+        tema_repo,
+        progresso_repo,
+        licao_repo,
+        _MateriaRepo("user-1"),
+    )
+
+    assert liberado.id == modulo.id
+
+
+def test_quiz_do_tema_nega_materia_de_outro_aluno(progresso_repo, licao_repo):
+    from app.core.exceptions import TemaNaoEncontradoException
+    from app.routers.tentativas import iniciar_tentativa_tema
+
+    modulo, _modulo_repo, tema_repo = _cenario()
+    tema = tema_repo.get(None)
+
+    with pytest.raises(TemaNaoEncontradoException):
+        iniciar_tentativa_tema(
+            tema.id,
+            "user-1",
+            tema_repo,
+            progresso_repo,
+            licao_repo,
+            _MateriaRepo("outro"),
+            questionario_repo=None,
+            tentativa_repo=None,
+            settings=None,
+        )
