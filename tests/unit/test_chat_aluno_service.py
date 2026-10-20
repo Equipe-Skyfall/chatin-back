@@ -326,3 +326,23 @@ def test_historico_oculta_o_turno_sintetico_da_licao():
     resultado = chat_aluno_service.anexar_fontes_ao_historico(historico, [])
 
     assert [m.papel for m in resultado] == [PAPEL_ASSISTENTE]
+
+
+def test_enviar_licao_com_ia_fora_do_ar_marca_a_ia_indisponivel(fake_ai_provider, licao_repo):
+    from app.ai.disponibilidade import status_ia
+    from app.core.exceptions import ProvedorIAIndisponivelException
+
+    class _IAFora(type(fake_ai_provider)):
+        def conversar_com_agente_aluno(self, *args, **kwargs):
+            raise ProvedorIAIndisponivelException("503")
+
+    modulo, modulo_repo, conversa_repo, conversa = _licao_setup()
+    assert status_ia.disponivel()
+
+    with pytest.raises(ProvedorIAIndisponivelException):
+        chat_aluno_service.enviar_licao(
+            conversa, "user-1", conversa_repo, modulo_repo, licao_repo, _IAFora(), _ctx(conversa.id)
+        )
+
+    assert not status_ia.disponivel()
+    assert not licao_repo.existe("user-1", modulo.id)

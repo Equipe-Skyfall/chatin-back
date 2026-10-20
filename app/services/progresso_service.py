@@ -7,13 +7,17 @@ separately persisted, so the levels can't drift out of sync with each other.
 
 import uuid
 
+from app.core.exceptions import ModuloBloqueadoException, ModuloNaoEncontradoException
 from app.models.materia import Materia
 from app.models.modulo import STATUS_PRONTO as MODULO_STATUS_PRONTO
 from app.models.modulo import Modulo
 from app.models.progresso import STATUS_CONCLUIDO, ProgressoUsuario
 from app.models.tema import STATUS_PRONTO as TEMA_STATUS_PRONTO
 from app.models.tema import Tema
+from app.repositories.materia_repository import MateriaRepository
+from app.repositories.modulo_repository import ModuloRepository
 from app.repositories.progresso_repository import ProgressoRepository
+from app.repositories.tema_repository import TemaRepository
 from app.repositories.xp_repository import XpRepository
 from app.schemas.common import EstadoProgresso
 from app.schemas.progresso import (
@@ -99,9 +103,7 @@ def montar_trilha(
             )
             tema_anterior_concluido = tema_concluido
 
-        materias_out.append(
-            TrilhaMateriaOut(id=materia.id, nome=materia.nome, temas=temas_out)
-        )
+        materias_out.append(TrilhaMateriaOut(id=materia.id, nome=materia.nome, temas=temas_out))
 
     return TrilhaOut(materias=materias_out)
 
@@ -270,3 +272,42 @@ def atualizar_progresso(
     )
 
     return progresso
+
+
+def materia_visivel_ao_aluno(tema: Tema, user_id: str, materia_repo: MateriaRepository) -> bool:
+    """The tema's matéria is global or the student's own - another student's
+    custom matéria must look like it doesn't exist."""
+    materia = materia_repo.get(tema.materia_id)
+    return materia is not None and materia.owner_user_id in (None, user_id)
+
+
+def verificar_acesso_ao_modulo(
+    modulo_id: uuid.UUID,
+    user_id: str,
+    modulo_repo: ModuloRepository,
+    tema_repo: TemaRepository,
+    progresso_repo: ProgressoRepository,
+    materia_repo: MateriaRepository,
+) -> Modulo:
+    """The módulo must be ready, unlocked for this student in their trail and in
+    a matéria they can see (global or their own). Another student's custom
+    matéria answers "not found", like a missing módulo, so its existence isn't
+    revealed."""
+    modulo = modulo_repo.get(modulo_id)
+    if modulo is None or modulo.status != MODULO_STATUS_PRONTO:
+        raise ModuloNaoEncontradoException(modulo_id)
+
+    tema = tema_repo.get(modulo.tema_id)
+    if not materia_visivel_ao_aluno(tema, user_id, materia_repo):
+        raise ModuloNaoEncontradoException(modulo_id)
+
+    temas_da_materia = tema_repo.list_by_materia_with_modulos(tema.materia_id)
+    modulo_ids = [m.id for t in temas_da_materia for m in t.modulos]
+    progresso_map = {
+        p.modulo_id: p for p in progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
+    }
+    tema_est = estado_tema(tema, temas_da_materia, progresso_map)
+    tema_com_modulos = next(t for t in temas_da_materia if t.id == tema.id)
+    if estado_modulo(modulo, tema_com_modulos.modulos, tema_est, progresso_map) == "bloqueado":
+        raise ModuloBloqueadoException()
+    return modulo

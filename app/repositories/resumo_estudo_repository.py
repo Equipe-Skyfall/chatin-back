@@ -45,9 +45,7 @@ class ResumoEstudoRepository(SqlAlchemyRepository[ResumoEstudo]):
                 .join(Tema, Modulo.tema_id == Tema.id)
                 .where(Tema.materia_id == materia_id)
             )
-        stmt = (
-            stmt.order_by(ResumoEstudo.updated_at.desc()).limit(limit).offset(offset)
-        )
+        stmt = stmt.order_by(ResumoEstudo.updated_at.desc()).limit(limit).offset(offset)
         return list(self.db.execute(stmt).scalars().all())
 
 

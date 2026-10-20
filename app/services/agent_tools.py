@@ -22,9 +22,7 @@ def _uid(valor: str) -> uuid.UUID:
 
 
 def _criar_materia(args: dict[str, Any], ctx: FerramentaContexto) -> str:
-    materia = curriculo_service.criar_materia(
-        args["nome"], args.get("descricao"), ctx.materia_repo
-    )
+    materia = curriculo_service.criar_materia(args["nome"], args.get("descricao"), ctx.materia_repo)
     return f"Matéria '{materia.nome}' criada (id={materia.id})."
 
 

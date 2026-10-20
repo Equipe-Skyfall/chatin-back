@@ -74,9 +74,7 @@ def criar_tema(
         tema_repo,
         direcionamento=body.direcionamento,
     )
-    background_tasks.add_task(
-        trilha_pessoal_service.completar_criacao_tema, tema.id, ai_provider
-    )
+    background_tasks.add_task(trilha_pessoal_service.completar_criacao_tema, tema.id, ai_provider)
     return tema
 
 

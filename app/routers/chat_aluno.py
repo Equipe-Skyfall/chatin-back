@@ -33,6 +33,7 @@ from app.schemas.chat import (
     ResumoConversaOut,
 )
 from app.services import chat_aluno_service
+from app.services.progresso_service import verificar_acesso_ao_modulo
 
 router = APIRouter(prefix="/chat", tags=["chat-aluno"])
 
@@ -126,9 +127,10 @@ def iniciar_licao(
     Idempotent: when the student already had the lesson nothing is sent to the
     model and the response points at their latest conversation on the módulo
     (`conversa_id` null when they have none yet)."""
-    modulo = modulo_repo.get(body.modulo_id)
-    if modulo is None:
-        raise ModuloNaoEncontradoException(body.modulo_id)
+    # Same access the quiz needs: ready, unlocked and visible in this student's trail.
+    modulo = verificar_acesso_ao_modulo(
+        body.modulo_id, user_id, modulo_repo, tema_repo, progresso_repo, materia_repo
+    )
 
     if licao_repo.existe(user_id, modulo.id):
         existentes = [
@@ -186,9 +188,7 @@ def iniciar_licao(
             conversa_repo.delete(conversa)
             conversa_repo.commit()
         raise
-    return LicaoRespostaOut(
-        conversa_id=conversa.id, resposta=resposta, ja_enviada=resposta is None
-    )
+    return LicaoRespostaOut(conversa_id=conversa.id, resposta=resposta, ja_enviada=resposta is None)
 
 
 @router.get("", response_model=list[ConversaOut])
@@ -233,7 +233,5 @@ def obter_historico(
     if isinstance(ai_provider, AdkProvider):
         historico_adk = ai_provider.obter_historico_sessao(conversa_id)
         if historico_adk is not None:
-            return chat_aluno_service.anexar_fontes_ao_historico(
-                historico_adk, conversa.mensagens
-            )
+            return chat_aluno_service.anexar_fontes_ao_historico(historico_adk, conversa.mensagens)
     return conversa.mensagens

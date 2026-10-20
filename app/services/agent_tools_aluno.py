@@ -97,8 +97,7 @@ def _meu_desempenho(args: dict[str, Any], ctx: FerramentaContexto) -> str:
 
     modulo_ids = [m.id for materia in materias for tema in materia.temas for m in tema.modulos]
     progresso_map = {
-        p.modulo_id: p
-        for p in ctx.progresso_repo.list_by_user_and_modulos(ctx.user_id, modulo_ids)
+        p.modulo_id: p for p in ctx.progresso_repo.list_by_user_and_modulos(ctx.user_id, modulo_ids)
     }
 
     desempenho_por_tema = ctx.tentativa_repo.desempenho_por_tema(ctx.user_id)

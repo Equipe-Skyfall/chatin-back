@@ -32,6 +32,14 @@ class DisponibilidadeIA:
             self._falhas_seguidas += 1
             self._ultima_falha = self._relogio()
 
+    def marcar_indisponivel(self) -> None:
+        """For a failure that already says it all (the provider answered 5xx/429 or
+        timed out on a long call): flips to unavailable now instead of waiting for
+        `FALHAS_SEGUIDAS` repeats, so the app stops depending on the AI at once."""
+        with self._trava:
+            self._falhas_seguidas = FALHAS_SEGUIDAS
+            self._ultima_falha = self._relogio()
+
     def segundos_ate_nova_tentativa(self) -> int:
         """0 when the provider is considered available."""
         with self._trava:

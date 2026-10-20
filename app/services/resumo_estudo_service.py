@@ -57,9 +57,7 @@ def _historico_modulo(
     user_id: str, modulo_id: uuid.UUID, conversa_repo: ConversaRepository
 ) -> list[MensagemAgente]:
     """Aggregates every conversation the student had about a módulo."""
-    conversas = conversa_repo.list_by_user_and_modulo_with_mensagens(
-        user_id, modulo_id, TIPO_ALUNO
-    )
+    conversas = conversa_repo.list_by_user_and_modulo_with_mensagens(user_id, modulo_id, TIPO_ALUNO)
     mensagens = [m for conversa in conversas for m in conversa.mensagens]
     return _mensagens_para_historico(mensagens)
 

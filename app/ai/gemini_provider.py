@@ -593,14 +593,10 @@ class GeminiProvider(AIProvider):
                 ConceitoChave(termo=c["termo"], explicacao=self._linha_unica(c["explicacao"]))
                 for c in data.get("conceitos_chave", [])
             ],
-            pontos_importantes=[
-                self._linha_unica(p) for p in data.get("pontos_importantes", [])
-            ],
+            pontos_importantes=[self._linha_unica(p) for p in data.get("pontos_importantes", [])],
             exemplos=[self._linha_unica(e) for e in data.get("exemplos", [])],
             duvidas_do_aluno=[
-                DuvidaResolvida(
-                    pergunta=d["pergunta"], resposta=self._linha_unica(d["resposta"])
-                )
+                DuvidaResolvida(pergunta=d["pergunta"], resposta=self._linha_unica(d["resposta"]))
                 for d in data.get("duvidas_do_aluno", [])
             ],
             revisao_rapida=[self._linha_unica(r) for r in data.get("revisao_rapida", [])],

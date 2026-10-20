@@ -421,17 +421,13 @@ class InMemoryResumoEstudoRepository:
     def get(self, entity_id: uuid.UUID) -> ResumoEstudo | None:
         return self.resumos.get(entity_id)
 
-    def get_by_user_and_modulo(
-        self, user_id: str, modulo_id: uuid.UUID
-    ) -> ResumoEstudo | None:
+    def get_by_user_and_modulo(self, user_id: str, modulo_id: uuid.UUID) -> ResumoEstudo | None:
         for resumo in self.resumos.values():
             if resumo.user_id == user_id and resumo.modulo_id == modulo_id:
                 return resumo
         return None
 
-    def get_by_user_and_conversa(
-        self, user_id: str, conversa_id: uuid.UUID
-    ) -> ResumoEstudo | None:
+    def get_by_user_and_conversa(self, user_id: str, conversa_id: uuid.UUID) -> ResumoEstudo | None:
         for resumo in self.resumos.values():
             if (
                 resumo.user_id == user_id
