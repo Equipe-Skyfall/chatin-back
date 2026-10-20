@@ -116,8 +116,6 @@ def amostra_ponderada_sem_reposicao(
     `random.sample`/`random.choices` don't cover "weighted, no duplicates",
     and pulling in numpy for this one algorithm isn't worth a new dependency.
     """
-    chaves = [
-        (random.random() ** (1.0 / max(pesos.get(item, 1.0), 1e-6)), item) for item in itens
-    ]
+    chaves = [(random.random() ** (1.0 / max(pesos.get(item, 1.0), 1e-6)), item) for item in itens]
     chaves.sort(key=lambda par: par[0], reverse=True)
     return [item for _, item in chaves[:k]]

@@ -209,9 +209,7 @@ def construir_tools(ctx: FerramentaContexto) -> list[Callable]:
             "deletar_modulo", {"tema_id": tema_id, "modulo_id": modulo_id}, ctx
         )
 
-    def regenerar_modulo(
-        tema_id: str, modulo_id: str, instrucoes: str | None = None
-    ) -> str:
+    def regenerar_modulo(tema_id: str, modulo_id: str, instrucoes: str | None = None) -> str:
         """Regenera o conteúdo e o questionário de um módulo (nova chamada
         de IA), descartando a versão atual. Use `instrucoes` para guiar a
         regeneração com o pedido específico do usuário (ex.: 'deixe mais
@@ -278,9 +276,7 @@ def construir_tools(ctx: FerramentaContexto) -> list[Callable]:
                 "questao_id": questao_id,
                 "enunciado": enunciado,
                 "alternativas": (
-                    [a.model_dump() for a in alternativas]
-                    if alternativas is not None
-                    else None
+                    [a.model_dump() for a in alternativas] if alternativas is not None else None
                 ),
                 "explicacao": explicacao,
                 "resposta_correta": resposta_correta,
@@ -339,9 +335,7 @@ def construir_tools_aluno(ctx: FerramentaContexto) -> list[Callable]:
         Args:
             materia_nome: Opcional - filtra por uma matéria específica.
         """
-        return executar_ferramenta_aluno(
-            "meu_desempenho", {"materia_nome": materia_nome}, ctx
-        )
+        return executar_ferramenta_aluno("meu_desempenho", {"materia_nome": materia_nome}, ctx)
 
     def criar_minha_trilha(
         nome_materia: str, titulo_tema: str, descricao_tema: str | None = None

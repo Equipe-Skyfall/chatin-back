@@ -5,8 +5,6 @@ from fastapi import APIRouter
 from app.ai.disponibilidade import status_ia
 from app.core.exceptions import (
     LicaoNaoIniciadaException,
-    ModuloBloqueadoException,
-    ModuloNaoEncontradoException,
     QuestionarioNaoEncontradoException,
     TemaBloqueadoException,
     TemaNaoEncontradoException,
@@ -39,9 +37,9 @@ from app.services import (
 from app.services.progresso_service import (
     atualizar_progresso,
     desempenho_tema_out,
-    estado_modulo,
     estado_tema,
     montar_progresso,
+    verificar_acesso_ao_modulo,
 )
 
 router = APIRouter(tags=["tentativas"])
@@ -58,20 +56,7 @@ def _verificar_modulo_disponivel(
     """Shared by `iniciar_tentativa` and `gerar_questionario_personalizado` -
     both need the módulo ready, unlocked and with its lesson given
     (`start_lesson`) before starting anything."""
-    modulo = modulo_repo.get(modulo_id)
-    if modulo is None or modulo.status != MODULO_STATUS_PRONTO:
-        raise ModuloNaoEncontradoException(modulo_id)
-
-    tema = tema_repo.get(modulo.tema_id)
-    temas_da_materia = tema_repo.list_by_materia_with_modulos(tema.materia_id)
-    modulo_ids = [m.id for t in temas_da_materia for m in t.modulos]
-    progresso_map = {
-        p.modulo_id: p for p in progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
-    }
-    tema_est = estado_tema(tema, temas_da_materia, progresso_map)
-    tema_com_modulos = next(t for t in temas_da_materia if t.id == tema.id)
-    if estado_modulo(modulo, tema_com_modulos.modulos, tema_est, progresso_map) == "bloqueado":
-        raise ModuloBloqueadoException()
+    modulo = verificar_acesso_ao_modulo(modulo_id, user_id, modulo_repo, tema_repo, progresso_repo)
     # With the AI down the lesson cannot be given, so it must not hold the quiz back.
     if status_ia.disponivel() and not licao_repo.existe(user_id, modulo_id):
         raise LicaoNaoIniciadaException(modulo_id)
