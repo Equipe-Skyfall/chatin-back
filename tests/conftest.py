@@ -1,5 +1,6 @@
 import pytest
 
+from app.ai import consumo
 from tests.fakes.fake_ai_provider import FakeAIProvider
 from tests.fakes.in_memory_repositories import (
     InMemoryProgressoRepository,
@@ -37,3 +38,13 @@ def _zerar_status_da_ia():
     status_ia.registrar_sucesso()
     yield
     status_ia.registrar_sucesso()
+
+
+@pytest.fixture(autouse=True)
+def consumo_registros():
+    """Usage records go to a list instead of the database, so no test depends on
+    (or waits for) a connection. Tests can assert on the returned list."""
+    registros: list[consumo.RegistroConsumo] = []
+    consumo.definir_gravador(registros.append)
+    yield registros
+    consumo.definir_gravador(None)
