@@ -337,6 +337,18 @@ def construir_tools_aluno(ctx: FerramentaContexto) -> list[Callable]:
         """
         return executar_ferramenta_aluno("meu_desempenho", {"materia_nome": materia_nome}, ctx)
 
+    def proximos_estudos(limite: int = 5) -> str:
+        """Lista os módulos que o aluno deve estudar em seguida, do mais
+        urgente para o menos, com o motivo de cada um: tema com baixo
+        desempenho, conteúdo ainda não estudado ou revisão que já está na
+        hora de repetir. Use quando o aluno perguntar o que estudar, por onde
+        continuar ou o que revisar.
+
+        Args:
+            limite: Quantos módulos listar (padrão 5, máximo 20).
+        """
+        return executar_ferramenta_aluno("proximos_estudos", {"limite": limite}, ctx)
+
     def criar_minha_trilha(
         nome_materia: str, titulo_tema: str, descricao_tema: str | None = None
     ) -> str:
@@ -388,4 +400,10 @@ def construir_tools_aluno(ctx: FerramentaContexto) -> list[Callable]:
             return "Nenhum resultado encontrado - responda sem fontes externas."
         return resultado.resumo
 
-    return [buscar_conteudo, meu_desempenho, criar_minha_trilha, buscar_fontes_web]
+    return [
+        buscar_conteudo,
+        meu_desempenho,
+        proximos_estudos,
+        criar_minha_trilha,
+        buscar_fontes_web,
+    ]

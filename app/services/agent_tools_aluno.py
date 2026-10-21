@@ -15,7 +15,12 @@ from typing import Any
 
 from app.ai.schemas import FerramentaContexto, FerramentaDeclaracao
 from app.core.exceptions import AppException
-from app.services import curriculo_service, dificuldade_service, trilha_pessoal_service
+from app.services import (
+    curriculo_service,
+    dificuldade_service,
+    recomendacao_service,
+    trilha_pessoal_service,
+)
 
 # Mirrors `progresso_service`'s default (see `Settings.PONTUACAO_MINIMA_
 # APROVACAO`) - not threaded through `FerramentaContexto` since this is the
@@ -135,6 +140,26 @@ def _meu_desempenho(args: dict[str, Any], ctx: FerramentaContexto) -> str:
     return "\n".join(linhas)
 
 
+def _proximos_estudos(args: dict[str, Any], ctx: FerramentaContexto) -> str:
+    limite = args.get("limite")
+    limite = (
+        min(max(int(limite), 1), recomendacao_service.LIMITE_MAXIMO)
+        if isinstance(limite, int | float)
+        else recomendacao_service.LIMITE_PADRAO
+    )
+    recomendacoes = recomendacao_service.listar_recomendacoes(
+        ctx.user_id, ctx.materia_repo, ctx.progresso_repo, ctx.tentativa_repo, limite
+    )
+    if not recomendacoes:
+        return "Não há nenhum módulo liberado para o aluno estudar agora."
+    linhas = [
+        f"{r.posicao}. {r.modulo_titulo} ({r.materia_nome} > {r.tema_titulo}, "
+        f"módulo id={r.modulo_id}): {r.justificativa}"
+        for r in recomendacoes
+    ]
+    return "\n".join(linhas)
+
+
 def _criar_minha_trilha(args: dict[str, Any], ctx: FerramentaContexto) -> str:
     nome_materia = (args.get("nome_materia") or "").strip()
     titulo_tema = (args.get("titulo_tema") or "").strip()
@@ -220,6 +245,24 @@ TOOLS: list[FerramentaDeclaracao] = [
         },
     ),
     FerramentaDeclaracao(
+        nome="proximos_estudos",
+        descricao=(
+            "Lista os módulos que o aluno deve estudar em seguida, do mais urgente para o "
+            "menos, com o motivo de cada um: tema com baixo desempenho, conteúdo ainda não "
+            "estudado ou revisão que já está na hora de repetir. Use quando o aluno perguntar "
+            "o que estudar, por onde continuar ou o que revisar."
+        ),
+        parametros={
+            "type": "OBJECT",
+            "properties": {
+                "limite": {
+                    "type": "INTEGER",
+                    "description": "Quantos módulos listar (padrão 5, máximo 20).",
+                }
+            },
+        },
+    ),
+    FerramentaDeclaracao(
         nome="criar_minha_trilha",
         descricao=(
             "Cria uma trilha própria do aluno (matéria + tema) quando buscar_conteudo não "
@@ -248,6 +291,7 @@ TOOLS: list[FerramentaDeclaracao] = [
 _DISPATCH: dict[str, Callable[[dict[str, Any], FerramentaContexto], str]] = {
     "buscar_conteudo": _buscar_conteudo,
     "meu_desempenho": _meu_desempenho,
+    "proximos_estudos": _proximos_estudos,
     "criar_minha_trilha": _criar_minha_trilha,
 }
 
