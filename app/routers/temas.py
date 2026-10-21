@@ -15,6 +15,7 @@ from app.deps import (
     MateriaRepo,
     ModuloRepo,
     ProgressoRepo,
+    SettingsDep,
     TemaRepo,
     TokenPayloadDep,
 )
@@ -53,6 +54,7 @@ def criar_tema(
     materia_repo: MateriaRepo,
     tema_repo: TemaRepo,
     ai_provider: AiProviderDep,
+    settings: SettingsDep,
     background_tasks: BackgroundTasks,
 ) -> Tema:
     """Inserts the tema (status `'gerando'`) and returns immediately; source
@@ -74,7 +76,17 @@ def criar_tema(
         tema_repo,
         direcionamento=body.direcionamento,
     )
-    background_tasks.add_task(trilha_pessoal_service.completar_criacao_tema, tema.id, ai_provider)
+    if body.gerar_modulos:
+        background_tasks.add_task(
+            trilha_pessoal_service.completar_criacao_trilha_pessoal,
+            tema.id,
+            settings.QUESTIONARIO_POOL_SIZE,
+            ai_provider,
+        )
+    else:
+        background_tasks.add_task(
+            trilha_pessoal_service.completar_criacao_tema, tema.id, ai_provider
+        )
     return tema
 
 

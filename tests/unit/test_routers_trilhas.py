@@ -228,3 +228,45 @@ def test_detalhe_de_trilha_inexistente_e_404(api):
     api.estado.explorar = _Explorar([])
 
     assert api.client.get(f"/trilhas/{uuid.uuid4()}").status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("gerar_modulos", "esperado"),
+    [(True, "completar_criacao_trilha_pessoal"), (False, "completar_criacao_tema")],
+)
+def test_criar_tema_encadeia_a_geracao_de_modulos_so_quando_pedido(
+    api, monkeypatch, gerar_modulos, esperado
+):
+    from app.models.tema import Tema
+    from app.services import curriculo_service, trilha_pessoal_service
+
+    propria = _materia(USER)
+    api.estado.materias = _MateriaRepo([propria])
+    tema = Tema(
+        id=uuid.uuid4(),
+        materia_id=propria.id,
+        titulo="Tema",
+        ordem=0,
+        status="gerando",
+        created_at=datetime.now(UTC),
+    )
+    monkeypatch.setattr(curriculo_service, "criar_tema_pendente", lambda *a, **k: tema)
+    chamadas = []
+    monkeypatch.setattr(
+        trilha_pessoal_service, "completar_criacao_tema", lambda *a: chamadas.append("tema")
+    )
+    monkeypatch.setattr(
+        trilha_pessoal_service,
+        "completar_criacao_trilha_pessoal",
+        lambda *a: chamadas.append("trilha_pessoal"),
+    )
+
+    resposta = api.client.post(
+        f"/materias/{propria.id}/temas",
+        json={"titulo": "Hidrocarbonetos", "gerar_modulos": gerar_modulos},
+    )
+
+    assert resposta.status_code == 201
+    assert chamadas == [
+        {"completar_criacao_trilha_pessoal": "trilha_pessoal"}.get(esperado, "tema")
+    ]
