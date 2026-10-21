@@ -18,6 +18,7 @@ from app.repositories.materia_repository import MateriaRepository
 from app.repositories.modulo_repository import ModuloRepository
 from app.repositories.progresso_repository import ProgressoRepository
 from app.repositories.tema_repository import TemaRepository
+from app.repositories.trilha_estudando_repository import TrilhaEstudandoRepository
 from app.repositories.xp_repository import XpRepository
 from app.schemas.common import EstadoProgresso
 from app.schemas.progresso import (
@@ -274,11 +275,21 @@ def atualizar_progresso(
     return progresso
 
 
-def materia_visivel_ao_aluno(tema: Tema, user_id: str, materia_repo: MateriaRepository) -> bool:
-    """The tema's matéria is global or the student's own - another student's
-    custom matéria must look like it doesn't exist."""
+def materia_visivel_ao_aluno(
+    tema: Tema,
+    user_id: str,
+    materia_repo: MateriaRepository,
+    trilha_estudando_repo: TrilhaEstudandoRepository | None = None,
+) -> bool:
+    """The tema's matéria is global, the student's own, or a community trilha
+    they adopted (`trilhas_estudando`) - any other student's custom matéria must
+    look like it doesn't exist."""
     materia = materia_repo.get(tema.materia_id)
-    return materia is not None and materia.owner_user_id in (None, user_id)
+    if materia is None:
+        return False
+    if materia.owner_user_id in (None, user_id):
+        return True
+    return trilha_estudando_repo is not None and trilha_estudando_repo.existe(user_id, materia.id)
 
 
 def verificar_acesso_ao_modulo(
@@ -288,17 +299,18 @@ def verificar_acesso_ao_modulo(
     tema_repo: TemaRepository,
     progresso_repo: ProgressoRepository,
     materia_repo: MateriaRepository,
+    trilha_estudando_repo: TrilhaEstudandoRepository | None = None,
 ) -> Modulo:
     """The módulo must be ready, unlocked for this student in their trail and in
-    a matéria they can see (global or their own). Another student's custom
-    matéria answers "not found", like a missing módulo, so its existence isn't
-    revealed."""
+    a matéria they study (global, their own or an adopted community trilha).
+    Another student's custom matéria answers "not found", like a missing módulo,
+    so its existence isn't revealed."""
     modulo = modulo_repo.get(modulo_id)
     if modulo is None or modulo.status != MODULO_STATUS_PRONTO:
         raise ModuloNaoEncontradoException(modulo_id)
 
     tema = tema_repo.get(modulo.tema_id)
-    if not materia_visivel_ao_aluno(tema, user_id, materia_repo):
+    if not materia_visivel_ao_aluno(tema, user_id, materia_repo, trilha_estudando_repo):
         raise ModuloNaoEncontradoException(modulo_id)
 
     temas_da_materia = tema_repo.list_by_materia_with_modulos(tema.materia_id)

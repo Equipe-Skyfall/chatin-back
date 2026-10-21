@@ -236,7 +236,9 @@ def test_quiz_do_modulo_vale_para_materia_propria(progresso_repo, licao_repo):
     assert liberado.id == modulo.id
 
 
-def test_quiz_do_tema_nega_materia_de_outro_aluno(progresso_repo, licao_repo):
+def test_quiz_do_tema_nega_materia_de_outro_aluno(
+    progresso_repo, licao_repo, trilha_estudando_repo
+):
     from app.core.exceptions import TemaNaoEncontradoException
     from app.routers.tentativas import iniciar_tentativa_tema
 
@@ -251,7 +253,38 @@ def test_quiz_do_tema_nega_materia_de_outro_aluno(progresso_repo, licao_repo):
             progresso_repo,
             licao_repo,
             _MateriaRepo("outro"),
+            trilha_estudando_repo,
             questionario_repo=None,
             tentativa_repo=None,
             settings=None,
         )
+
+
+def test_trilha_da_comunidade_so_libera_o_modulo_depois_de_adotada(
+    progresso_repo, trilha_estudando_repo
+):
+    modulo, modulo_repo, tema_repo = _cenario()
+    materia_repo = _MateriaRepo("outro")
+
+    with pytest.raises(ModuloNaoEncontradoException):
+        verificar_acesso_ao_modulo(
+            modulo.id,
+            "user-1",
+            modulo_repo,
+            tema_repo,
+            progresso_repo,
+            materia_repo,
+            trilha_estudando_repo,
+        )
+
+    trilha_estudando_repo.adicionar("user-1", tema_repo._tema.materia_id)
+    liberado = verificar_acesso_ao_modulo(
+        modulo.id,
+        "user-1",
+        modulo_repo,
+        tema_repo,
+        progresso_repo,
+        materia_repo,
+        trilha_estudando_repo,
+    )
+    assert liberado.id == modulo.id

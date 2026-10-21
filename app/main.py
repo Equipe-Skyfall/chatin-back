@@ -4,7 +4,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging
-from app.routers import chat, chat_aluno, ia, materias, modulos, resumos, temas, tentativas, xp
+from app.routers import (
+    chat,
+    chat_aluno,
+    ia,
+    materias,
+    modulos,
+    resumos,
+    temas,
+    tentativas,
+    trilhas,
+    xp,
+)
 
 configure_logging()
 settings = get_settings()
@@ -30,6 +41,7 @@ app.include_router(chat_aluno.router)
 app.include_router(xp.router)
 app.include_router(resumos.router)
 app.include_router(ia.router)
+app.include_router(trilhas.router)
 
 
 @app.get("/healthz")
