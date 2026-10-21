@@ -236,6 +236,53 @@ def test_obter_ou_gerar_resumo_ia_falha_mantem_resumo_anterior(fake_ai_provider,
     assert resumo == "Resumo antigo."
 
 
+def test_obter_ou_gerar_resumo_nao_chama_a_ia_quando_ela_esta_fora_do_ar(fake_ai_provider):
+    from app.ai.disponibilidade import status_ia
+
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=2)
+    conversa_repo.add(conversa)
+    status_ia.marcar_indisponivel()
+
+    resumo = chat_aluno_service.obter_ou_gerar_resumo(conversa, conversa_repo, fake_ai_provider)
+
+    assert resumo is None
+    assert fake_ai_provider.resumir_conversa_calls == 0
+    assert conversa.resumo_gerado_em is None
+
+
+def test_obter_ou_gerar_resumo_com_ia_fora_do_ar_devolve_o_resumo_guardado(fake_ai_provider):
+    from app.ai.disponibilidade import status_ia
+
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=2)
+    conversa.resumo = "Resumo antigo."
+    conversa.resumo_gerado_em = datetime(2020, 1, 1, tzinfo=UTC)  # stale on purpose
+    conversa_repo.add(conversa)
+    status_ia.marcar_indisponivel()
+
+    resumo = chat_aluno_service.obter_ou_gerar_resumo(conversa, conversa_repo, fake_ai_provider)
+
+    assert resumo == "Resumo antigo."
+    assert fake_ai_provider.resumir_conversa_calls == 0
+
+
+def test_obter_ou_gerar_resumo_atualizado_nao_depende_do_estado_da_ia(fake_ai_provider):
+    from app.ai.disponibilidade import status_ia
+
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=2)
+    conversa.resumo = "Resumo em dia."
+    conversa.resumo_gerado_em = datetime(2999, 1, 1, tzinfo=UTC)
+    conversa_repo.add(conversa)
+    status_ia.marcar_indisponivel()
+
+    assert (
+        chat_aluno_service.obter_ou_gerar_resumo(conversa, conversa_repo, fake_ai_provider)
+        == "Resumo em dia."
+    )
+
+
 def _licao_setup():
     modulo = ModuloBuilder().com_titulo("Causas").build()
     modulo_repo = InMemoryModuloRepository()

@@ -164,13 +164,21 @@ def obter_ou_gerar_resumo(
     with no messages yet (nothing to summarize) or when the AI provider fails
     (RNF6) - one conversation's summary failing must not break the rest of
     the list (see `listar_resumos`), and the stale summary just gets retried
-    on the next call instead of being persisted as a failure."""
+    on the next call instead of being persisted as a failure.
+
+    While `status_ia` says the AI is down it isn't called at all, so a long
+    list doesn't wait one timeout per conversation; the stored summary (if
+    any) is returned as is."""
     esta_atualizado = (
         conversa.resumo is not None
         and conversa.resumo_gerado_em is not None
         and conversa.resumo_gerado_em >= conversa.updated_at
     )
     if esta_atualizado:
+        return conversa.resumo
+    if not status_ia.disponivel():
+        # The AI is known to be down: don't make every listed conversation wait
+        # for a timeout. The stored summary (possibly stale) is better than none.
         return conversa.resumo
 
     completa = conversa_repo.get_with_mensagens(conversa.id)
