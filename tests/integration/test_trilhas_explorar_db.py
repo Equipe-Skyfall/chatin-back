@@ -84,7 +84,7 @@ def test_stats_votos_alunos_autor_e_estudando(db_session):
     assert (item.temas, item.modulos) == (1, 3)
     assert item.alunos == 3  # a (adotou) + b (progresso) + u-autor (autor)
     assert item.autor_nome == "Ana Autora"
-    assert item.estudando is False and item.pronta is True
+    assert item.estudando is False and item.propria is False and item.pronta is True
 
 
 def test_ordem_por_votos_e_por_alunos(db_session):

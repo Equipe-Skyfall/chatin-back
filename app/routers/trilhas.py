@@ -45,6 +45,7 @@ def _item_out(item: ItemExplorar) -> dict:
         "modulos": item.modulos,
         "alunos": item.alunos,
         "estudando": item.estudando,
+        "propria": item.propria,
         "pronta": item.pronta,
         "created_at": item.materia.created_at,
     }

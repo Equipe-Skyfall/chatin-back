@@ -19,6 +19,7 @@ class TrilhaExplorarOut(BaseModel):
     modulos: int = Field(description="Módulos prontos.")
     alunos: int = Field(description="Alunos estudando (adotaram, têm progresso ou são o autor).")
     estudando: bool = Field(description="Já faz parte das trilhas deste aluno.")
+    propria: bool = Field(description="Foi criada por este aluno (não sai da lista de estudos).")
     pronta: bool = Field(description="Tem ao menos um módulo pronto para estudar.")
     created_at: datetime
 

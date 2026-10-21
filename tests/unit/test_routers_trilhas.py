@@ -199,6 +199,7 @@ def _item(owner=None, **extra):
         votos=4,
         meu_voto=1,
         estudando=owner is None,
+        propria=owner == USER,
         pronta=True,
     )
     return ItemExplorar(**{**base, **extra})

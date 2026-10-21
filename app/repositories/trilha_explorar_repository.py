@@ -30,6 +30,7 @@ class ItemExplorar:
     votos: int
     meu_voto: int | None
     estudando: bool
+    propria: bool
     pronta: bool
 
 
@@ -151,6 +152,7 @@ class TrilhaExplorarRepository:
                         or materia.owner_user_id == user_id
                         or foi_adotada
                     ),
+                    propria=materia.owner_user_id == user_id,
                     pronta=int(modulos) > 0,
                 )
             )
@@ -200,6 +202,7 @@ class TrilhaExplorarRepository:
             estudando=bool(
                 materia.owner_user_id is None or materia.owner_user_id == user_id or foi_adotada
             ),
+            propria=materia.owner_user_id == user_id,
             pronta=int(modulos) > 0,
         )
 
