@@ -119,6 +119,9 @@ class InMemoryConversaRepository:
     def tocar(self, conversa_id: uuid.UUID) -> None:
         pass
 
+    def list_by_user(self, user_id: str, tipo: str) -> list[Conversa]:
+        return [c for c in self._conversas.values() if c.user_id == user_id and c.tipo == tipo]
+
     def list_by_user_and_modulo_with_mensagens(
         self, user_id: str, modulo_id: uuid.UUID, tipo: str
     ) -> list[Conversa]:
@@ -256,6 +259,10 @@ class InMemoryTentativaRepository:
             tentativa.id = uuid.uuid4()
         self._pendentes.append(tentativa)
         return tentativa
+
+    def list_by_user(self, user_id: str) -> list[Tentativa]:
+        self._persistir_pendentes()
+        return [t for t in self.tentativas.values() if t.user_id == user_id]
 
     def _persistir_pendentes(self) -> None:
         for tentativa in self._pendentes:
