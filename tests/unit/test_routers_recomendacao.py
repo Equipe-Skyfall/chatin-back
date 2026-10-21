@@ -86,18 +86,20 @@ def test_aluno_novo_recebe_o_primeiro_modulo(api):
     resposta = api([materia]).get("/recomendacao")
 
     assert resposta.status_code == 200
-    corpo = resposta.json()["recomendacao"]
+    recomendacoes = resposta.json()["recomendacoes"]
+    assert [r["posicao"] for r in recomendacoes] == [1]
+    corpo = recomendacoes[0]
     assert corpo["modulo_id"] == str(tema1.modulos[0].id)
     assert corpo["motivo"] == "nao_estudado"
     assert corpo["materia_nome"] == "História"
     assert corpo["tema_titulo"] == "Tema 1"
 
 
-def test_sem_conteudo_a_recomendacao_e_nula(api):
+def test_sem_conteudo_a_lista_e_vazia(api):
     resposta = api([]).get("/recomendacao")
 
     assert resposta.status_code == 200
-    assert resposta.json() == {"recomendacao": None}
+    assert resposta.json() == {"recomendacoes": []}
 
 
 def test_tema_com_baixo_desempenho_e_data_antiga_volta_a_ser_recomendado(api):
@@ -116,9 +118,18 @@ def test_tema_com_baixo_desempenho_e_data_antiga_volta_a_ser_recomendado(api):
     cliente = api([materia], tentativas)
     app.dependency_overrides[get_progresso_repository] = lambda: progresso
 
-    corpo = cliente.get("/recomendacao").json()["recomendacao"]
+    corpo = cliente.get("/recomendacao").json()["recomendacoes"][0]
 
     assert corpo["modulo_id"] == str(modulo.id)
     assert corpo["motivo"] == "baixo_desempenho"
     assert corpo["taxa_acerto_tema"] == 20.0
     assert corpo["dias_desde_ultimo_estudo"] == 1
+
+
+def test_limite_da_lista_e_validado(api):
+    materia, *_ = _trilha()
+    cliente = api([materia])
+
+    assert cliente.get("/recomendacao?limite=1").status_code == 200
+    assert cliente.get("/recomendacao?limite=0").status_code == 422
+    assert cliente.get("/recomendacao?limite=21").status_code == 422

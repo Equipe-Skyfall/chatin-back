@@ -8,6 +8,7 @@ MotivoRecomendacao = Literal["nao_estudado", "baixo_desempenho", "revisao_espaca
 
 
 class RecomendacaoOut(BaseModel):
+    posicao: int
     modulo_id: UUID
     modulo_titulo: str
     tema_id: UUID
@@ -22,7 +23,7 @@ class RecomendacaoOut(BaseModel):
     taxa_acerto_tema: float | None
 
 
-class RecomendacaoResposta(BaseModel):
-    """`recomendacao` is null when the student has no módulo available yet."""
+class RecomendacoesResposta(BaseModel):
+    """Most urgent first; empty when the student has no módulo available yet."""
 
-    recomendacao: RecomendacaoOut | None
+    recomendacoes: list[RecomendacaoOut]

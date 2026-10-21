@@ -1,6 +1,7 @@
 """Which módulo the student should study next (US-9).
 
-Every módulo the student can open gets a priority and the highest wins:
+Every módulo the student can open gets a priority and the highest ones are
+recommended, most urgent first:
 
 - never studied: a fixed medium-high priority, so new content is not ignored
   but a weak or overdue módulo still comes first;
@@ -19,9 +20,16 @@ the rules are testable without a database.
 import uuid
 from datetime import UTC, datetime
 
+from app.repositories.materia_repository import MateriaRepository
+from app.repositories.progresso_repository import ProgressoRepository
+from app.repositories.tentativa_repository import TentativaRepository
 from app.schemas.progresso import ProgressoModuloOut, ProgressoOut, ProgressoTemaOut
 from app.schemas.recomendacao import RecomendacaoOut
 from app.services import dificuldade_service
+from app.services.progresso_service import montar_progresso
+
+LIMITE_PADRAO = 5
+LIMITE_MAXIMO = 20
 
 PRIORIDADE_NAO_ESTUDADO = 0.55
 PESO_DESEMPENHO = 0.6
@@ -73,16 +81,17 @@ def _justificativa_estudado(
     return f"Você estudou {tema.titulo} {quando}; revisar agora ajuda a fixar o conteúdo."
 
 
-def recomendar_proximo_estudo(
+def recomendar_proximos_estudos(
     progresso: ProgressoOut,
     ultimo_estudo_por_modulo: dict[uuid.UUID, datetime],
+    limite: int = LIMITE_PADRAO,
     agora: datetime | None = None,
-) -> RecomendacaoOut | None:
-    """The módulo to study next, or `None` when no módulo is open to the student
-    (everything is locked, or there is no content yet). Ties keep the trail's
-    order, so the earliest módulo wins."""
+) -> list[RecomendacaoOut]:
+    """Up to `limite` módulos to study next, most urgent first - empty when no
+    módulo is open to the student (everything is locked, or there is no content
+    yet). Ties keep the trail's order, so the earliest módulo comes first."""
     agora = agora or datetime.now(UTC)
-    melhor: tuple[float, RecomendacaoOut] | None = None
+    candidatas: list[RecomendacaoOut] = []
 
     for materia in progresso.materias:
         for tema in materia.temas:
@@ -107,27 +116,52 @@ def recomendar_proximo_estudo(
                     motivo = "baixo_desempenho" if desempenho >= tempo else "revisao_espacada"
                     justificativa = _justificativa_estudado(motivo, tema, taxa, dias)
 
-                if melhor is None or prioridade > melhor[0]:
-                    melhor = (
-                        prioridade,
-                        RecomendacaoOut(
-                            modulo_id=modulo.modulo_id,
-                            modulo_titulo=modulo.titulo,
-                            tema_id=tema.tema_id,
-                            tema_titulo=tema.titulo,
-                            materia_id=materia.materia_id,
-                            materia_nome=materia.nome,
-                            motivo=motivo,
-                            justificativa=justificativa,
-                            prioridade=round(prioridade, 4),
-                            ultimo_estudo=ultimo,
-                            dias_desde_ultimo_estudo=dias,
-                            taxa_acerto_tema=(
-                                None
-                                if tema.desempenho.total_respostas == 0
-                                else tema.desempenho.taxa_acerto
-                            ),
+                candidatas.append(
+                    RecomendacaoOut(
+                        posicao=0,
+                        modulo_id=modulo.modulo_id,
+                        modulo_titulo=modulo.titulo,
+                        tema_id=tema.tema_id,
+                        tema_titulo=tema.titulo,
+                        materia_id=materia.materia_id,
+                        materia_nome=materia.nome,
+                        motivo=motivo,
+                        justificativa=justificativa,
+                        prioridade=round(prioridade, 4),
+                        ultimo_estudo=ultimo,
+                        dias_desde_ultimo_estudo=dias,
+                        taxa_acerto_tema=(
+                            None
+                            if tema.desempenho.total_respostas == 0
+                            else tema.desempenho.taxa_acerto
                         ),
                     )
+                )
 
-    return None if melhor is None else melhor[1]
+    candidatas.sort(key=lambda r: r.prioridade, reverse=True)  # stable: ties keep trail order
+    return [
+        r.model_copy(update={"posicao": posicao})
+        for posicao, r in enumerate(candidatas[: max(limite, 0)], start=1)
+    ]
+
+
+def listar_recomendacoes(
+    user_id: str,
+    materia_repo: MateriaRepository,
+    progresso_repo: ProgressoRepository,
+    tentativa_repo: TentativaRepository,
+    limite: int = LIMITE_PADRAO,
+) -> list[RecomendacaoOut]:
+    """From the student's own trail (official curriculum plus their trilhas),
+    built the same way `/progresso` is. Shared by the route and the agent tool."""
+    materias = materia_repo.list_minhas_e_globais_with_temas_e_modulos(user_id)
+    modulo_ids = [m.id for materia in materias for tema in materia.temas for m in tema.modulos]
+    progresso = montar_progresso(
+        materias,
+        progresso_repo.list_by_user_and_modulos(user_id, modulo_ids),
+        {},
+        tentativa_repo.desempenho_por_tema(user_id),
+    )
+    return recomendar_proximos_estudos(
+        progresso, tentativa_repo.ultimo_estudo_por_modulo(user_id), limite
+    )
