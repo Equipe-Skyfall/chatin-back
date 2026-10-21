@@ -13,6 +13,7 @@ from app.deps import (
     LicaoRepo,
     MateriaRepo,
     ModuloRepo,
+    PerfilRepo,
     ProgressoRepo,
     QuestionarioRepo,
     SettingsDep,
@@ -32,7 +33,7 @@ from app.schemas.chat import (
     MensagemOut,
     ResumoConversaOut,
 )
-from app.services import chat_aluno_service
+from app.services import atalho_service, chat_aluno_service
 from app.services.progresso_service import verificar_acesso_ao_modulo
 
 router = APIRouter(prefix="/chat", tags=["chat-aluno"])
@@ -51,6 +52,7 @@ def enviar_mensagem(
     progresso_repo: ProgressoRepo,
     tentativa_repo: TentativaRepo,
     voto_repo: VotoRepo,
+    perfil_repo: PerfilRepo,
     ai_provider: AiProviderDep,
     settings: SettingsDep,
     background_tasks: BackgroundTasks,
@@ -87,6 +89,13 @@ def enviar_mensagem(
         conversa_id=conversa.id,
         background_tasks=background_tasks,
     )
+    # A clear, common request ("como estou indo?") is answered from our own
+    # data with no LLM call; anything else goes to the agent as before.
+    resposta_pronta = (
+        atalho_service.tentar_atalho(body.texto, ctx, perfil_repo)
+        if settings.ATALHOS_CHAT_ATIVOS
+        else None
+    )
     resposta = chat_aluno_service.enviar_mensagem(
         conversa,
         body.texto,
@@ -95,6 +104,7 @@ def enviar_mensagem(
         ai_provider,
         ctx,
         settings.MEMORIA_JANELA_MENSAGENS,
+        resposta_pronta=resposta_pronta,
     )
     return ChatRespostaOut(
         conversa_id=conversa.id,

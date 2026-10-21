@@ -40,8 +40,14 @@ def enviar_mensagem(
     ai_provider: AIProvider,
     ctx: FerramentaContexto,
     janela: int,
+    resposta_pronta: str | None = None,
 ) -> str:
-    """`janela` caps how many of the conversation's most recent messages are
+    """`resposta_pronta` is the answer to a message the app already answered
+    itself (a chat shortcut, see `atalho_service`): the agent is not called, the
+    turn is stored and recorded in the provider's own history
+    (`registrar_troca`), so it shows in the history and the agent remembers it.
+
+    `janela` caps how many of the conversation's most recent messages are
     sent to the model (older ones stay in Postgres, just not in the prompt) -
     bounds prompt size and cost on long chats. `ctx` is this student's
     `FerramentaContexto` (see `routers/chat_aluno.py` for how it's built) -
@@ -63,6 +69,13 @@ def enviar_mensagem(
         # through. This is the only concurrency guard on the student chat.
         conversa_repo.rollback()
         raise ConversaOcupadaException() from exc
+
+    if resposta_pronta is not None:
+        _salvar(PAPEL_ASSISTENTE, resposta_pronta)
+        conversa_repo.tocar(conversa.id)
+        conversa_repo.commit()
+        ai_provider.registrar_troca(conversa.id, texto_usuario, resposta_pronta)
+        return resposta_pronta
 
     recarregada = conversa_repo.get_with_mensagens(conversa.id)
     historico = [_mensagem_para_historico(m) for m in recarregada.mensagens[-janela:]]
