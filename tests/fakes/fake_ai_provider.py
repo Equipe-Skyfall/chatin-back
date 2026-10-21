@@ -57,6 +57,7 @@ class FakeAIProvider(AIProvider):
         self.erros_recebidos: list[list[ErroQuestao]] = []
         self.falhar_gerar_feedback_erros = False
         self.pesquisar_web_calls = 0
+        self.trocas_registradas: list[tuple] = []
         self.falhar_pesquisar_web = False
         self.resultado_pesquisa_web: ResultadoBuscaWeb | None = None
         # When set, `conversar_com_agente_aluno` calls the student agent's
@@ -199,6 +200,9 @@ class FakeAIProvider(AIProvider):
             return self.resposta_agente_aluno_fixa
         pergunta = mensagens[-1].conteudo if mensagens else ""
         return f"Resposta de teste para: {pergunta}"
+
+    def registrar_troca(self, conversa_id, pergunta, resposta) -> None:
+        self.trocas_registradas.append((conversa_id, pergunta, resposta))
 
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         self.resumir_conversa_calls += 1

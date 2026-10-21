@@ -91,9 +91,19 @@ class InMemoryConversaRepository:
     def get_with_mensagens(self, conversa_id: uuid.UUID) -> Conversa | None:
         return self._conversas.get(conversa_id)
 
+    def get(self, conversa_id: uuid.UUID) -> Conversa | None:
+        return self._conversas.get(conversa_id)
+
     def add(self, conversa: Conversa) -> Conversa:
+        if conversa.id is None:
+            conversa.id = uuid.uuid4()
+        if conversa.mensagens is None:
+            conversa.mensagens = []
         self._conversas[conversa.id] = conversa
         return conversa
+
+    def refresh(self, conversa: Conversa) -> None:
+        pass
 
     def commit(self) -> None:
         if self.falhar_proximo_commit:
