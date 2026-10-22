@@ -2,22 +2,16 @@
 
 A few example phrases per intent (and some messages that are *not* an intent) are
 turned into TF-IDF vectors over words and bigrams, so "o que estudar" differs
-from "estudar o que" and "não quero ver" from "quero ver". Two ways to label a
-message are available:
+from "estudar o que" and "não quero ver" from "quero ver". A message gets the
+label of the example it is closest to, by cosine similarity; a close negative
+example means "nenhuma".
 
-- `regressao` (the default): a logistic regression learns which words and
-  pairs of words tell the intents apart, so filler shared by all of them
-  ("eu estou", "quero ver") weighs little. It also learns a "nenhuma" class
-  from the negative messages.
-- `cosseno`: the label of the example the message is closest to, by cosine
-  similarity. Simpler, but it is misled by the filler words.
-
-Either way it is deliberately conservative: a message the classifier is not
-sure about, one with a negation or two requests in one, or one with too many
-words the examples never use, gets `None` and goes to the agent as usual - a
-missed shortcut costs one normal turn, a wrong one would answer the wrong
-thing. `avaliar` scores a labelled set of messages (precision and recall per
-intent), which is how the examples and the thresholds are tuned.
+It is deliberately conservative: a message the classifier is not sure about (low
+similarity, or two intents nearly tied), one with a negation or two requests in
+one, or one with too many words the examples never use, gets `None` and goes to
+the agent as usual - a missed shortcut costs one normal turn, a wrong one would
+answer the wrong thing. `avaliar` scores a labelled set of messages (precision
+and recall per intent), which is how the examples and the thresholds are tuned.
 """
 
 import re
@@ -25,10 +19,8 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Literal
 
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics.pairwise import cosine_similarity
 
 INTENCAO_DESEMPENHO = "desempenho"
@@ -246,14 +238,12 @@ NEGACOES = {"nao", "nunca", "jamais", "sem", "nenhum", "nenhuma"}
 # Two requests in one message ("meu xp e meu ranking"): the agent can answer both.
 CONJUNCOES = re.compile(r"\b(e|ou|tambem|alem)\b")
 
-METODO_PADRAO = "regressao"
-Metodo = Literal["regressao", "cosseno"]
-# Minimum probability (regressao) or cosine similarity (cosseno) to take a shortcut.
-LIMIARES: dict[str, float] = {"regressao": 0.7, "cosseno": 0.4}
-MARGEM_COSSENO = 0.1
+# Minimum cosine similarity to an example, and how far ahead of the next label
+# it must be, to take a shortcut.
+LIMIAR = 0.5
+MARGEM = 0.15
 COBERTURA = 0.7
 NGRAMAS = (1, 2)
-FORCA_REGRESSAO = 30.0  # inverse regularization (`C`) of the logistic regression
 ROTULO_NENHUMA = "nenhuma"
 
 
@@ -273,9 +263,8 @@ class ClassificadorDeIntencao:
         self,
         exemplos: dict[str, list[str]] | None = None,
         negativos: list[str] | None = None,
-        metodo: Metodo = METODO_PADRAO,
-        limiar: float | None = None,
-        margem: float | None = None,
+        limiar: float = LIMIAR,
+        margem: float = MARGEM,
         cobertura: float = COBERTURA,
         ngramas: tuple[int, int] = NGRAMAS,
     ):
@@ -283,11 +272,8 @@ class ClassificadorDeIntencao:
             exemplos = EXEMPLOS
             negativos = NEGATIVOS if negativos is None else negativos
         negativos = negativos or []
-        self._metodo = metodo
-        self._limiar = LIMIARES[metodo] if limiar is None else limiar
-        self._margem = (
-            (MARGEM_COSSENO if metodo == "cosseno" else 0.0) if margem is None else margem
-        )
+        self._limiar = limiar
+        self._margem = margem
         self._cobertura = cobertura
         self._rotulos = [r for r, frases in exemplos.items() for _ in frases]
         textos = [f for frases in exemplos.values() for f in frases]
@@ -301,11 +287,6 @@ class ClassificadorDeIntencao:
             sublinear_tf=True,
         )
         self._matriz = self._vetorizador.fit_transform(textos_todos)
-        self._modelo = (
-            LogisticRegression(C=FORCA_REGRESSAO, max_iter=2000).fit(self._matriz, self._rotulos)
-            if metodo == "regressao"
-            else None
-        )
         # Words only (no bigrams), to measure how much of a message the intent
         # examples cover; the negatives are not part of that vocabulary.
         self._palavras = TfidfVectorizer(
@@ -319,12 +300,9 @@ class ClassificadorDeIntencao:
         return sum(p in self._vocabulario for p in palavras) / len(palavras)
 
     def pontuacoes(self, mensagem: str) -> dict[str, float]:
-        """Per label (the intents and "nenhuma"): the probability (regressao) or
-        the best cosine similarity to one of its examples (cosseno)."""
+        """Per label (the intents and "nenhuma"): the best cosine similarity
+        between the message and one of its examples."""
         vetor = self._vetorizador.transform([mensagem])
-        if self._modelo is not None:
-            probabilidades = self._modelo.predict_proba(vetor)[0]
-            return {r: float(p) for r, p in zip(self._modelo.classes_, probabilidades, strict=True)}
         similaridades = cosine_similarity(vetor, self._matriz)[0]
         melhores: dict[str, float] = {}
         for rotulo, similaridade in zip(self._rotulos, similaridades, strict=True):
