@@ -144,13 +144,16 @@ def test_proximos_estudos_sem_nada_liberado():
 def test_xp_informa_total_nivel_e_o_que_falta():
     resposta = _atalho("quanto xp eu tenho", _ctx(xp_repo=_XpRepo(total=620)))
 
-    assert resposta == "Você tem 620 XP e está no nível 2. Faltam 100 XP para o nível 3."
+    assert resposta == "Você tem 620 XP e está no nível 2. Faltam 100 XP para chegar ao nível 3."
 
 
 def test_xp_de_quem_ainda_nao_tem_nivel():
     resposta = _atalho("meu xp", _ctx(xp_repo=_XpRepo(total=40)))
 
-    assert resposta == "Você tem 40 XP e ainda não chegou ao nível 1. Faltam 460 XP para o nível 1."
+    assert (
+        resposta
+        == "Você tem 40 XP e ainda não chegou ao nível 1. Faltam 460 XP para chegar ao nível 1."
+    )
 
 
 # --- ranking ---

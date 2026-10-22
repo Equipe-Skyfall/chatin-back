@@ -123,7 +123,10 @@ def test_pedido_conhecido_e_respondido_sem_chamar_o_agente(api):
 
     assert resposta.status_code == 200, resposta.text
     corpo = resposta.json()
-    assert corpo["resposta"] == "Você tem 620 XP e está no nível 2. Faltam 100 XP para o nível 3."
+    assert (
+        corpo["resposta"]
+        == "Você tem 620 XP e está no nível 2. Faltam 100 XP para chegar ao nível 3."
+    )
     assert api.repos.ia.conversar_com_agente_aluno_calls == 0
     assert _mensagens(api.repos, corpo["conversa_id"]) == [
         (PAPEL_USUARIO, "quanto xp eu tenho?"),
