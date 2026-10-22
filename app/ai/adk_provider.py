@@ -48,6 +48,7 @@ from datetime import UTC, datetime
 
 from google.adk.agents import LlmAgent, RunConfig
 from google.adk.agents.invocation_context import LlmCallsLimitExceededError
+from google.adk.events import Event
 from google.adk.runners import InMemoryRunner, Runner
 from google.adk.sessions import DatabaseSessionService
 from google.adk.tools import google_search
@@ -95,6 +96,7 @@ logger = logging.getLogger(__name__)
 _retry_transient = resiliencia.retry_transiente(tentativas=3, espera_max=8)
 
 _APP_NAME = "chatin"
+_AGENTE_ALUNO_NOME = "agente_aluno_agent"
 _USER_ID = "system"  # sessions are keyed by conversa_id (already globally
 # unique) - a constant user_id is enough, ADK's per-user semantics aren't
 # needed here.
@@ -451,7 +453,7 @@ class AdkProvider(AIProvider):
         smaller tool set (`adk_tools.construir_tools_aluno`) and system
         instruction - see `_executar_agente`."""
         agente = LlmAgent(
-            name="agente_aluno_agent",
+            name=_AGENTE_ALUNO_NOME,
             model=self._settings.GEMINI_MODEL_AGENTE,
             instruction=prompt_agente_aluno_system(conteudo_modulo),
             tools=construir_tools_aluno(ctx),
@@ -513,6 +515,46 @@ class AdkProvider(AIProvider):
             raise
         except Exception as exc:  # noqa: BLE001
             raise ProvedorIAIndisponivelException(f"Falha na conversa com o agente: {exc}") from exc
+
+    def registrar_troca(self, conversa_id: uuid.UUID, pergunta: str, resposta: str) -> None:
+        """Appends a question/answer the app answered itself (a chat shortcut) to
+        the conversation's ADK session: it then shows up in the history read by
+        `obter_historico_sessao`, and the agent sees it on the next turn.
+        Best-effort - the answer already reached the student, so a failure here
+        is logged, never raised."""
+        session_id = str(conversa_id)
+
+        async def _run() -> None:
+            service = self._agente_session_service
+            session = await service.get_session(
+                app_name=_APP_NAME, user_id=_USER_ID, session_id=session_id
+            )
+            if session is None:
+                session = await service.create_session(
+                    app_name=_APP_NAME, user_id=_USER_ID, session_id=session_id
+                )
+            turnos = (
+                ("user", "user", pergunta),
+                (_AGENTE_ALUNO_NOME, "model", resposta),
+            )
+            for autor, papel, texto in turnos:
+                evento = Event(
+                    author=autor,
+                    content=genai_types.Content(
+                        role=papel, parts=[genai_types.Part.from_text(text=texto)]
+                    ),
+                )
+                await service.append_event(session, evento)
+                session = await service.get_session(
+                    app_name=_APP_NAME, user_id=_USER_ID, session_id=session_id
+                )
+
+        try:
+            self._run_no_loop_do_agente(_run())
+        except Exception:  # noqa: BLE001 - the shortcut's answer was already delivered
+            logger.warning(
+                "não foi possível registrar o atalho na sessão %s", session_id, exc_info=True
+            )
 
     def obter_historico_sessao(self, conversa_id: uuid.UUID) -> list[MensagemHistorico] | None:
         """Reads the admin agent's ADK session for `conversa_id` and

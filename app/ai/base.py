@@ -7,6 +7,7 @@ one) means writing one new class here - zero changes to business logic.
 is the test double.
 """
 
+import uuid
 from abc import ABC, abstractmethod
 
 from app.ai.schemas import (
@@ -107,6 +108,13 @@ class AIProvider(ABC):
         web grounding just returns no sources, and the chat carries on
         without them (RNF6)."""
         return ResultadoBuscaWeb(resumo="")
+
+    def registrar_troca(self, conversa_id: uuid.UUID, pergunta: str, resposta: str) -> None:
+        """Records a question and answer the app produced without the agent (a
+        chat shortcut), so a provider that keeps its own conversation history
+        (ADK's session) still shows the turn and the agent still remembers it.
+        Not abstract: a provider without such a history has nothing to do."""
+        return None
 
     @abstractmethod
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:

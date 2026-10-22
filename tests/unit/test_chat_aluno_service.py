@@ -183,6 +183,55 @@ def test_colisao_de_ordem_vira_conversa_ocupada_sem_chamar_a_ia(fake_ai_provider
     assert conversa.mensagens == []
 
 
+# --- resposta_pronta (chat shortcut) ---
+
+
+def test_enviar_mensagem_com_resposta_pronta_nao_chama_o_agente(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa()
+    conversa_repo.add(conversa)
+
+    resposta = chat_aluno_service.enviar_mensagem(
+        conversa,
+        "como estou indo?",
+        conversa_repo,
+        InMemoryModuloRepository(),
+        fake_ai_provider,
+        _ctx(conversa.id),
+        janela=20,
+        resposta_pronta="Você tem 120 XP.",
+    )
+
+    assert resposta == "Você tem 120 XP."
+    assert fake_ai_provider.conversar_com_agente_aluno_calls == 0
+    assert [(m.papel, m.conteudo) for m in conversa.mensagens] == [
+        (PAPEL_USUARIO, "como estou indo?"),
+        (PAPEL_ASSISTENTE, "Você tem 120 XP."),
+    ]
+    assert fake_ai_provider.trocas_registradas == [
+        (conversa.id, "como estou indo?", "Você tem 120 XP.")
+    ]
+
+
+def test_enviar_mensagem_sem_resposta_pronta_continua_usando_o_agente(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa()
+    conversa_repo.add(conversa)
+
+    chat_aluno_service.enviar_mensagem(
+        conversa,
+        "explique a revolução francesa",
+        conversa_repo,
+        InMemoryModuloRepository(),
+        fake_ai_provider,
+        _ctx(conversa.id),
+        janela=20,
+    )
+
+    assert fake_ai_provider.conversar_com_agente_aluno_calls == 1
+    assert fake_ai_provider.trocas_registradas == []
+
+
 # --- obter_ou_gerar_resumo ---
 
 

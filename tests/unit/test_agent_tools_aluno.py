@@ -107,6 +107,9 @@ class _FakeTentativaRepository:
     def desempenho_por_tema(self, user_id: str) -> dict[uuid.UUID, tuple[int, int]]:
         return dict(self.por_tema)
 
+    def ultimo_estudo_por_modulo(self, user_id: str) -> dict:
+        return {}
+
 
 class _FakeBackgroundTasks:
     """Records scheduled calls without running them - matches how a real
@@ -407,3 +410,61 @@ def test_erro_de_dominio_vira_string_erro_nao_excecao():
     )
 
     assert resultado.startswith("Erro:")
+
+
+# --- proximos_estudos ---
+
+
+def _materia_com_modulos(nome: str, *titulos_de_modulo: str) -> Materia:
+    from app.models.modulo import Modulo
+
+    materia = Materia(id=uuid.uuid4(), nome=nome, owner_user_id=None)
+    tema = Tema(id=uuid.uuid4(), materia_id=materia.id, titulo="Funções", ordem=0, status="pronto")
+    tema.modulos = [
+        Modulo(id=uuid.uuid4(), tema_id=tema.id, titulo=t, ordem=i, status="pronto")
+        for i, t in enumerate(titulos_de_modulo)
+    ]
+    materia.temas = [tema]
+    return materia
+
+
+def test_proximos_estudos_sem_conteudo_liberado():
+    resultado = executar_ferramenta_aluno("proximos_estudos", {}, _ctx())
+
+    assert "nenhum módulo liberado" in resultado.lower()
+
+
+def test_proximos_estudos_lista_numerada_com_o_motivo():
+    materia = _materia_com_modulos("Matemática", "Função afim")
+    materia_repo = _FakeMateriaRepository()
+    materia_repo.seed(materia)
+
+    resultado = executar_ferramenta_aluno("proximos_estudos", {}, _ctx(materia_repo=materia_repo))
+
+    assert resultado.startswith("1. Função afim (Matemática > Funções")
+    assert "ainda não estudou" in resultado
+    assert str(materia.temas[0].modulos[0].id) in resultado
+
+
+def test_proximos_estudos_respeita_o_limite_e_o_maximo():
+    """Módulos unlock one after the other, so a long list needs many matérias."""
+    materia_repo = _FakeMateriaRepository()
+    for i in range(30):
+        materia_repo.seed(_materia_com_modulos(f"Matéria {i}", "Módulo"))
+    ctx = _ctx(materia_repo=materia_repo)
+
+    def quantas(argumentos):
+        return len(executar_ferramenta_aluno("proximos_estudos", argumentos, ctx).splitlines())
+
+    assert quantas({}) == 5
+    assert quantas({"limite": 2}) == 2
+    assert quantas({"limite": 99}) == 20
+    assert quantas({"limite": "x"}) == 5
+
+
+def test_proximos_estudos_esta_declarada_para_os_dois_provedores():
+    from app.ai.adk_tools import construir_tools_aluno
+    from app.services.agent_tools_aluno import TOOLS
+
+    assert "proximos_estudos" in {t.nome for t in TOOLS}
+    assert "proximos_estudos" in {f.__name__ for f in construir_tools_aluno(_ctx())}

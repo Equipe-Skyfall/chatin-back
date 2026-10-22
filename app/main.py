@@ -10,6 +10,7 @@ from app.routers import (
     ia,
     materias,
     modulos,
+    recomendacao,
     resumos,
     temas,
     tentativas,
@@ -41,6 +42,7 @@ app.include_router(chat_aluno.router)
 app.include_router(xp.router)
 app.include_router(resumos.router)
 app.include_router(ia.router)
+app.include_router(recomendacao.router)
 app.include_router(trilhas.router)
 
 

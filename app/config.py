@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     TRILHAS_POR_MES: int = 3
     TENTATIVA_NUM_QUESTOES: int = 5
     PONTUACAO_MINIMA_APROVACAO: float = 60.0
+    # Answers short, common requests ("como estou indo?") without calling the LLM.
+    ATALHOS_CHAT_ATIVOS: bool = True
     AGENTE_MAX_ITERACOES: int = 8  # safety cap on tool-call round-trips per chat turn
 
     # Student chat: how many of a conversation's most recent messages are sent
