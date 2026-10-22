@@ -4,6 +4,7 @@ Routers and services raise these instead of building `HTTPException` by hand.
 `core.exception_handlers` maps the base class to an HTTP response in one place.
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from app.core.falha_ia import TipoFalhaIA, classificar_falha
@@ -245,3 +246,20 @@ class GeracaoConteudoFalhouException(AppException):
 class AgenteLimiteExcedidoException(AppException):
     status_code = 502
     detail = "O agente excedeu o número máximo de chamadas de ferramentas para esta mensagem."
+
+
+class LimiteTrilhasMensalExcedidoException(AppException):
+    status_code = 403
+    code = "LIMITE_TRILHAS_MENSAL"
+
+    def __init__(self, limite: int, reseta_em: datetime):
+        super().__init__(
+            f"Você já criou {limite} trilhas neste mês. O limite renova em "
+            f"{reseta_em.strftime('%d/%m/%Y')}."
+        )
+        self.extra = {"limite": limite, "usadas": limite, "reseta_em": reseta_em.isoformat()}
+
+
+class NaoPodePararDeEstudarException(AppException):
+    status_code = 409
+    detail = "Currículo verificado e trilhas criadas por você não saem da sua lista de estudos."

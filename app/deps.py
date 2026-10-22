@@ -30,6 +30,7 @@ from app.repositories.questionario_repository import QuestionarioRepo
 from app.repositories.resumo_estudo_repository import ResumoEstudoRepo
 from app.repositories.tema_repository import TemaRepo
 from app.repositories.tentativa_repository import TentativaRepo
+from app.repositories.trilha_estudando_repository import TrilhaEstudandoRepo
 from app.repositories.voto_repository import VotoRepo
 from app.repositories.xp_repository import XpRepo
 
@@ -52,6 +53,7 @@ __all__ = [
     "VotoRepo",
     "ResumoEstudoRepo",
     "IaConsumoRepo",
+    "TrilhaEstudandoRepo",
 ]
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]

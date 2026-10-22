@@ -397,6 +397,26 @@ class InMemoryLicaoRepository:
         pass
 
 
+class InMemoryTrilhaEstudandoRepository:
+    def __init__(self):
+        self.adocoes: set[tuple[str, uuid.UUID]] = set()
+
+    def existe(self, user_id: str, materia_id: uuid.UUID) -> bool:
+        return (user_id, materia_id) in self.adocoes
+
+    def ids_do_usuario(self, user_id: str) -> set[uuid.UUID]:
+        return {mid for (uid, mid) in self.adocoes if uid == user_id}
+
+    def adicionar(self, user_id: str, materia_id: uuid.UUID) -> None:
+        self.adocoes.add((user_id, materia_id))
+
+    def remover(self, user_id: str, materia_id: uuid.UUID) -> None:
+        self.adocoes.discard((user_id, materia_id))
+
+    def commit(self) -> None:
+        pass
+
+
 class InMemoryXpRepository:
     def __init__(self):
         self.eventos: list = []

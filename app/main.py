@@ -14,6 +14,7 @@ from app.routers import (
     resumos,
     temas,
     tentativas,
+    trilhas,
     xp,
 )
 
@@ -42,6 +43,7 @@ app.include_router(xp.router)
 app.include_router(resumos.router)
 app.include_router(ia.router)
 app.include_router(recomendacao.router)
+app.include_router(trilhas.router)
 
 
 @app.get("/healthz")

@@ -7,6 +7,7 @@ from tests.fakes.in_memory_repositories import (
     InMemoryProgressoRepository,
     InMemoryQuestionarioRepository,
     InMemoryTentativaRepository,
+    InMemoryTrilhaEstudandoRepository,
 )
 
 
@@ -54,3 +55,8 @@ def consumo_registros():
 @pytest.fixture
 def licao_repo() -> InMemoryLicaoRepository:
     return InMemoryLicaoRepository()
+
+
+@pytest.fixture
+def trilha_estudando_repo() -> InMemoryTrilhaEstudandoRepository:
+    return InMemoryTrilhaEstudandoRepository()

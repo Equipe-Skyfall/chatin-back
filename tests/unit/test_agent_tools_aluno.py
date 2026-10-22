@@ -35,6 +35,9 @@ class _FakeMateriaRepository:
     def list_minhas_e_globais_with_temas_e_modulos(self, user_id: str) -> list[Materia]:
         return self.list_minhas_e_globais(user_id)
 
+    def count_criadas_desde(self, user_id: str, desde) -> int:
+        return sum(1 for m in self.materias.values() if m.owner_user_id == user_id)
+
     def add(self, materia: Materia) -> Materia:
         if materia.id is None:
             materia.id = uuid.uuid4()
@@ -343,6 +346,46 @@ def test_criar_minha_trilha_reusa_materia_existente_do_mesmo_aluno():
     assert len(materia_repo.materias) == 1  # no duplicate matéria created
     (tema,) = tema_repo.temas.values()
     assert tema.materia_id == existente.id
+
+
+def test_criar_minha_trilha_respeita_o_limite_mensal_sem_derrubar_o_turno():
+    materia_repo = _FakeMateriaRepository()
+    for i in range(3):
+        materia_repo.seed(Materia(id=uuid.uuid4(), nome=f"Trilha {i}", owner_user_id="aluno-1"))
+    tema_repo = _FakeTemaRepository()
+    ctx = _ctx(
+        materia_repo=materia_repo,
+        tema_repo=tema_repo,
+        background_tasks=_FakeBackgroundTasks(),
+        user_id="aluno-1",
+    )
+
+    resultado = executar_ferramenta_aluno(
+        "criar_minha_trilha", {"nome_materia": "Nova", "titulo_tema": "Tema"}, ctx
+    )
+
+    assert resultado.startswith("Não criei a trilha")
+    assert len(materia_repo.materias) == 3 and not tema_repo.temas
+
+
+def test_criar_minha_trilha_em_materia_existente_nao_gasta_cota():
+    materia_repo = _FakeMateriaRepository()
+    for nome in ("A", "B", "Química"):
+        materia_repo.seed(Materia(id=uuid.uuid4(), nome=nome, owner_user_id="aluno-1"))
+    tema_repo = _FakeTemaRepository()
+    ctx = _ctx(
+        materia_repo=materia_repo,
+        tema_repo=tema_repo,
+        background_tasks=_FakeBackgroundTasks(),
+        user_id="aluno-1",
+    )
+
+    resultado = executar_ferramenta_aluno(
+        "criar_minha_trilha", {"nome_materia": "química", "titulo_tema": "Alcanos"}, ctx
+    )
+
+    assert "Criei a trilha" in resultado
+    assert len(tema_repo.temas) == 1
 
 
 def test_ferramenta_inexistente_retorna_erro_sem_lancar():

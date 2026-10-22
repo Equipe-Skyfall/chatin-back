@@ -14,11 +14,12 @@ from collections.abc import Callable
 from typing import Any
 
 from app.ai.schemas import FerramentaContexto, FerramentaDeclaracao
-from app.core.exceptions import AppException
+from app.core.exceptions import AppException, LimiteTrilhasMensalExcedidoException
 from app.services import (
     curriculo_service,
     dificuldade_service,
     recomendacao_service,
+    trilha_cota_service,
     trilha_pessoal_service,
 )
 
@@ -175,6 +176,12 @@ def _criar_minha_trilha(args: dict[str, Any], ctx: FerramentaContexto) -> str:
         ),
         None,
     )
+    if existente is None:
+        try:
+            trilha_cota_service.exigir_vaga(ctx.user_id, ctx.materia_repo, ctx.limite_trilhas_mes)
+        except LimiteTrilhasMensalExcedidoException as exc:
+            # A tool reports it to the model (which tells the student) instead of failing the turn.
+            return f"Não criei a trilha: {exc.detail}"
     materia = existente or curriculo_service.criar_materia(
         nome_materia, None, ctx.materia_repo, owner_user_id=ctx.user_id
     )

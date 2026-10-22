@@ -16,6 +16,7 @@ from app.models.tentativa import (
     Tentativa,
     TentativaQuestao,
 )
+from app.models.trilha_estudando import TrilhaEstudando
 from app.models.voto_materia import VotoMateria
 from app.models.xp import XpEvento
 
@@ -39,4 +40,5 @@ __all__ = [
     "ResumoEstudo",
     "IaConsumo",
     "LicaoIniciada",
+    "TrilhaEstudando",
 ]

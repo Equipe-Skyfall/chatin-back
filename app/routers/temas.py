@@ -15,6 +15,7 @@ from app.deps import (
     MateriaRepo,
     ModuloRepo,
     ProgressoRepo,
+    SettingsDep,
     TemaRepo,
     TokenPayloadDep,
 )
@@ -53,6 +54,7 @@ def criar_tema(
     materia_repo: MateriaRepo,
     tema_repo: TemaRepo,
     ai_provider: AiProviderDep,
+    settings: SettingsDep,
     background_tasks: BackgroundTasks,
 ) -> Tema:
     """Inserts the tema (status `'gerando'`) and returns immediately; source
@@ -74,7 +76,17 @@ def criar_tema(
         tema_repo,
         direcionamento=body.direcionamento,
     )
-    background_tasks.add_task(trilha_pessoal_service.completar_criacao_tema, tema.id, ai_provider)
+    if body.gerar_modulos:
+        background_tasks.add_task(
+            trilha_pessoal_service.completar_criacao_trilha_pessoal,
+            tema.id,
+            settings.QUESTIONARIO_POOL_SIZE,
+            ai_provider,
+        )
+    else:
+        background_tasks.add_task(
+            trilha_pessoal_service.completar_criacao_tema, tema.id, ai_provider
+        )
     return tema
 
 
@@ -147,9 +159,10 @@ def obter_trilha(
     progresso_repo: ProgressoRepo,
     licao_repo: LicaoRepo,
 ) -> TrilhaOut:
-    """The one shared, official curriculum - never a student's own trilha
-    (see `GET /materias` for "official + everyone's community trilhas")."""
-    materias = materia_repo.list_globais_with_temas_e_modulos()
+    """The trilhas this student studies: the shared, verified curriculum, their
+    own trilhas and the community ones they adopted (`POST /trilhas/{id}/estudar`).
+    Never another student's trilha they have not adopted."""
+    materias = materia_repo.list_minhas_e_globais_with_temas_e_modulos(user_id)
     modulo_ids = [m.id for materia in materias for tema in materia.temas for m in tema.modulos]
     progresso_rows = progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
     return montar_trilha(

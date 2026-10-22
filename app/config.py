@@ -40,6 +40,8 @@ class Settings(BaseSettings):
 
     # Content generation tuning
     QUESTIONARIO_POOL_SIZE: int = 12
+    # How many trilhas (matérias) a non-admin student may create per calendar month.
+    TRILHAS_POR_MES: int = 3
     TENTATIVA_NUM_QUESTOES: int = 5
     PONTUACAO_MINIMA_APROVACAO: float = 60.0
     # Answers short, common requests ("como estou indo?") without calling the LLM.

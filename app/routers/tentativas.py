@@ -22,10 +22,12 @@ from app.deps import (
     SettingsDep,
     TemaRepo,
     TentativaRepo,
+    TrilhaEstudandoRepo,
     XpRepo,
 )
 from app.models.modulo import STATUS_PRONTO as MODULO_STATUS_PRONTO
 from app.models.tema import STATUS_PRONTO as TEMA_STATUS_PRONTO
+from app.repositories.trilha_estudando_repository import TrilhaEstudandoRepository
 from app.schemas.progresso import ProgressoOut
 from app.schemas.questionario import AlternativaOut, QuestaoOut, TentativaIniciarOut
 from app.schemas.tentativa import ResponderRequest, TentativaHistoricoOut, TentativaResultadoOut
@@ -54,13 +56,20 @@ def _verificar_modulo_disponivel(
     progresso_repo: ProgressoRepo,
     licao_repo: LicaoRepo,
     materia_repo: MateriaRepo,
+    trilha_estudando_repo: TrilhaEstudandoRepository | None = None,
 ):
     """Shared by `iniciar_tentativa` and `gerar_questionario_personalizado` -
     both need the módulo ready, unlocked, in a matéria the student can
     see (their own or global) and with its lesson given (`start_lesson`)
     before starting anything."""
     modulo = verificar_acesso_ao_modulo(
-        modulo_id, user_id, modulo_repo, tema_repo, progresso_repo, materia_repo
+        modulo_id,
+        user_id,
+        modulo_repo,
+        tema_repo,
+        progresso_repo,
+        materia_repo,
+        trilha_estudando_repo,
     )
     # With the AI down the lesson cannot be given, so it must not hold the quiz back.
     if status_ia.disponivel() and not licao_repo.existe(user_id, modulo_id):
@@ -95,12 +104,20 @@ def iniciar_tentativa(
     progresso_repo: ProgressoRepo,
     licao_repo: LicaoRepo,
     materia_repo: MateriaRepo,
+    trilha_estudando_repo: TrilhaEstudandoRepo,
     questionario_repo: QuestionarioRepo,
     tentativa_repo: TentativaRepo,
     settings: SettingsDep,
 ) -> TentativaIniciarOut:
     _verificar_modulo_disponivel(
-        modulo_id, user_id, modulo_repo, tema_repo, progresso_repo, licao_repo, materia_repo
+        modulo_id,
+        user_id,
+        modulo_repo,
+        tema_repo,
+        progresso_repo,
+        licao_repo,
+        materia_repo,
+        trilha_estudando_repo,
     )
 
     questionario = questionario_repo.get_by_modulo(modulo_id)
@@ -122,6 +139,7 @@ def gerar_questionario_personalizado(
     progresso_repo: ProgressoRepo,
     licao_repo: LicaoRepo,
     materia_repo: MateriaRepo,
+    trilha_estudando_repo: TrilhaEstudandoRepo,
     questionario_repo: QuestionarioRepo,
     conversa_repo: ConversaRepo,
     tentativa_repo: TentativaRepo,
@@ -133,7 +151,14 @@ def gerar_questionario_personalizado(
     may call the AI (only for however many questions the pool is short of -
     see `questionario_personalizado_service`) and never affects progress/XP."""
     _verificar_modulo_disponivel(
-        modulo_id, user_id, modulo_repo, tema_repo, progresso_repo, licao_repo, materia_repo
+        modulo_id,
+        user_id,
+        modulo_repo,
+        tema_repo,
+        progresso_repo,
+        licao_repo,
+        materia_repo,
+        trilha_estudando_repo,
     )
 
     tentativa, questoes = questionario_personalizado_service.gerar_tentativa_personalizada(
@@ -158,6 +183,7 @@ def iniciar_tentativa_tema(
     progresso_repo: ProgressoRepo,
     licao_repo: LicaoRepo,
     materia_repo: MateriaRepo,
+    trilha_estudando_repo: TrilhaEstudandoRepo,
     questionario_repo: QuestionarioRepo,
     tentativa_repo: TentativaRepo,
     settings: SettingsDep,
@@ -168,7 +194,7 @@ def iniciar_tentativa_tema(
     if (
         tema is None
         or tema.status != TEMA_STATUS_PRONTO
-        or not materia_visivel_ao_aluno(tema, user_id, materia_repo)
+        or not materia_visivel_ao_aluno(tema, user_id, materia_repo, trilha_estudando_repo)
     ):
         raise TemaNaoEncontradoException(tema_id)
 

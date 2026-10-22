@@ -15,6 +15,14 @@ class TemaCreate(BaseModel):
     direcionamento: str | None = Field(
         None, description="Instruções livres para a IA (estilo, profundidade, exemplos etc.)."
     )
+    gerar_modulos: bool = Field(
+        False,
+        description=(
+            "Encadeia, em segundo plano, a pesquisa de fontes e a divisão automática em "
+            "módulos (o mesmo fluxo da trilha criada pelo chat); sem isso só as fontes "
+            "são buscadas."
+        ),
+    )
 
 
 class TemaUpdate(BaseModel):
