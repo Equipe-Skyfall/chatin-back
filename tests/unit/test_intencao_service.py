@@ -58,30 +58,146 @@ CASOS: list[tuple[str, str | None]] = [
 ]
 
 
+# Held out from the training data; used to pick the thresholds.
+CASOS_RESERVA_C: list[tuple[str, str | None]] = [
+    ("como está o meu rendimento nas questões", D),
+    ("me diz quanto eu estou acertando", D),
+    ("estou progredindo nos estudos", D),
+    ("qual meu aproveitamento geral", D),
+    ("quais assuntos eu mais erro", D),
+    ("como tá meu desempenho hoje", D),
+    ("quero ver como estou indo nas matérias", D),
+    ("minha pontuação média", D),
+    ("em quais temas vou mal", D),
+    ("fui bem nas últimas questões", D),
+    ("o que eu devo estudar em seguida", P),
+    ("qual módulo devo fazer agora", P),
+    ("me recomenda um conteúdo para estudar hoje", P),
+    ("o que posso estudar agora", P),
+    ("qual é a próxima aula", P),
+    ("o que eu tenho que revisar", P),
+    ("por onde devo continuar a estudar", P),
+    ("me mostra o que estudar a seguir", P),
+    ("qual o meu próximo estudo", P),
+    ("o que é melhor eu estudar hoje", P),
+    ("quanto xp eu já tenho", X),
+    ("qual é o meu nível agora", X),
+    ("me diz meu xp total", X),
+    ("falta quanto xp para o próximo nível", X),
+    ("em que level eu estou", X),
+    ("quantos pontos de xp me faltam", X),
+    ("já subi de nível", X),
+    ("quanto de experiência eu tenho", X),
+    ("em que posição do ranking eu estou", R),
+    ("quem ocupa o primeiro lugar", R),
+    ("qual o meu lugar no ranking de xp", R),
+    ("me mostra quem lidera", R),
+    ("estou bem no ranking", R),
+    ("quero ver a classificação dos alunos", R),
+    ("quem está em segundo no ranking", R),
+    ("qual minha posição entre os alunos", R),
+    ("qual o desempenho do atleta nas olimpíadas", None),
+    ("como melhorar meu rendimento no trabalho", None),
+    ("o que devo estudar para ser médico", None),
+    ("qual o próximo número primo depois de 13", None),
+    ("explique o que é xp em programação extrema", None),
+    ("quem lidera a pesquisa sobre vacinas", None),
+    ("qual o ranking de universidades do brasil", None),
+    ("me fale sobre os pontos fracos do capitalismo", None),
+    ("como subir de nível em um jogo", None),
+    ("qual é a posição da letra a no alfabeto", None),
+    ("preciso de ajuda com equações do primeiro grau", None),
+    ("explique a revolução industrial", None),
+    ("qual a capital da frança", None),
+    ("oi, tudo certo", None),
+    ("não quero ver minha posição", None),
+    ("meu desempenho e meu ranking", None),
+    ("quero ver meu xp e o que devo estudar", None),
+    ("quais foram os resultados da eleição de 2022", None),
+    ("me ensina a calcular porcentagem de acerto em uma prova", None),
+    ("como é a classificação dos triângulos", None),
+]
+
+# Held out and written before the final thresholds were chosen; run once to confirm them.
+CASOS_RESERVA_D: list[tuple[str, str | None]] = [
+    ("como está indo o meu estudo", D),
+    ("qual meu percentual de acertos", D),
+    ("em que assunto estou pior", D),
+    ("me mostra minha evolução nas provas", D),
+    ("como eu me saí nos quizzes", D),
+    ("estou acertando bastante", D),
+    ("quais conteúdos eu preciso melhorar", D),
+    ("o que devo estudar primeiro hoje", P),
+    ("me indica um módulo para estudar", P),
+    ("qual é o próximo conteúdo para mim", P),
+    ("por onde eu devo começar hoje", P),
+    ("o que eu devo ver em seguida", P),
+    ("tem algo para eu revisar agora", P),
+    ("me sugere um assunto para estudar", P),
+    ("quanto xp eu tenho agora", X),
+    ("qual o meu nível atual", X),
+    ("quanto falta para o nível seguinte", X),
+    ("me mostra meu xp", X),
+    ("quantos pontos de experiência faltam", X),
+    ("em que posição eu estou no ranking", R),
+    ("quem está liderando o ranking", R),
+    ("me mostra os primeiros colocados", R),
+    ("qual é a minha classificação", R),
+    ("quem tem mais pontos", R),
+    ("qual a diferença entre xp e pontos de vida em jogos", None),
+    ("quem é o líder do partido", None),
+    ("explique o que são níveis de energia do átomo", None),
+    ("qual é o desempenho esperado de um aluno do ensino médio", None),
+    ("o que estudar para a prova de geografia sobre clima", None),
+    ("me fala sobre o ranking da fifa", None),
+    ("como calcular o percentual de acertos de um time", None),
+    ("quanto é vinte por cento de cem", None),
+    ("obrigado, ajudou muito", None),
+    ("por favor, resuma o capítulo sobre ditadura", None),
+    ("quem foi o líder da revolução russa", None),
+    ("qual a posição do planeta marte no sistema solar", None),
+]
+
+INTENCOES = (D, P, X, R)
+RESERVA = CASOS_RESERVA_C + CASOS_RESERVA_D
+
+
 @pytest.fixture(scope="module")
 def classificador():
     return ClassificadorDeIntencao()
 
 
-def test_nenhum_atalho_errado_no_conjunto_de_avaliacao(classificador):
+def _media_do_recall(metricas):
+    return sum(metricas[i]["recall"] for i in INTENCOES) / len(INTENCOES)
+
+
+def test_nenhum_atalho_errado_nos_conjuntos_de_avaliacao(classificador):
     """Precision is what matters: a wrong shortcut answers the wrong thing, a
     missed one only costs a normal agent turn."""
-    metricas = avaliar(CASOS, classificador)
+    for casos in (CASOS, CASOS_RESERVA_C, CASOS_RESERVA_D):
+        for intencao, m in avaliar(casos, classificador).items():
+            assert m["precisao"] == 1.0, (intencao, m)
 
-    for intencao, m in metricas.items():
-        assert m["precisao"] == 1.0, (intencao, m)
+
+def test_pedidos_novos_viram_atalho_com_boa_cobertura(classificador):
+    """Recall on messages written apart from the training data. The misses are
+    phrasings the examples never saw, and each just goes to the agent."""
+    metricas = avaliar(RESERVA, classificador)
+
+    for intencao in INTENCOES:
+        assert metricas[intencao]["recall"] >= 0.4, (intencao, metricas[intencao])
+    assert _media_do_recall(metricas) >= 0.6
 
 
-def test_a_maioria_dos_pedidos_validos_vira_atalho(classificador):
-    """Recall is the softer goal: the misses are words the examples never use
-    (a plain bag of words can't relate "lidera" to "liderando"), and each one
-    just goes to the agent."""
-    metricas = avaliar(CASOS, classificador)
+def test_a_regressao_acerta_mais_que_o_cosseno_no_conjunto_reservado(classificador):
+    cosseno = ClassificadorDeIntencao(metodo="cosseno", cobertura=0.9)
 
-    for intencao in (D, P, X, R):
-        assert metricas[intencao]["recall"] >= 0.6, (intencao, metricas[intencao])
-    media = sum(m["recall"] for m in metricas.values()) / len(metricas)
-    assert media >= 0.85
+    regressao_recall = _media_do_recall(avaliar(RESERVA, classificador))
+    cosseno_recall = _media_do_recall(avaliar(RESERVA, cosseno))
+
+    assert regressao_recall > cosseno_recall
+    for m in avaliar(RESERVA, classificador).values():
+        assert m["precisao"] == 1.0
 
 
 @pytest.mark.parametrize("mensagem, esperada", [c for c in CASOS if c[1] is not None])
@@ -91,9 +207,24 @@ def test_pedido_valido_recebe_a_intencao_certa_ou_vai_pro_agente(classificador, 
     assert resultado is None or resultado.intencao == esperada
 
 
+@pytest.mark.parametrize("mensagem", ["meu xp e meu ranking", "como estou indo e o que estudar"])
+def test_dois_pedidos_na_mesma_mensagem_vao_para_o_agente(classificador, mensagem):
+    assert classificador.classificar(mensagem) is None
+
+
+def test_mensagem_de_conteudo_que_reusa_as_palavras_vai_para_o_agente(classificador):
+    for mensagem in (
+        "quais são os pontos fortes do iluminismo",
+        "qual o ranking de universidades do brasil",
+        "como subir de nível em um jogo",
+        "qual a classificação dos seres vivos",
+    ):
+        assert classificador.classificar(mensagem) is None, mensagem
+
+
 def test_ordem_das_palavras_so_importa_com_bigramas():
     exemplos = {"a": ["quero ver o ranking"], "b": ["ranking quero ver"]}
-    kwargs = {"margem": 0.0, "cobertura": 0.0}
+    kwargs = {"metodo": "cosseno", "margem": 0.0, "cobertura": 0.0}
     sem_ordem = ClassificadorDeIntencao(exemplos, ngramas=(1, 1), **kwargs)
     com_ordem = ClassificadorDeIntencao(exemplos, ngramas=(1, 2), **kwargs)
 
@@ -113,7 +244,14 @@ def test_pontuacao_e_devolvida_com_a_intencao(classificador):
     resultado = classificador.classificar("como estou indo")
 
     assert resultado.intencao == D
-    assert 0.5 <= resultado.pontuacao <= 1.0
+    assert 0.7 <= resultado.pontuacao <= 1.0
+
+
+def test_probabilidades_da_regressao_somam_um_e_incluem_a_classe_nenhuma(classificador):
+    pontos = classificador.pontuacoes("explique a revolução francesa")
+
+    assert sum(pontos.values()) == pytest.approx(1.0)
+    assert pontos["nenhuma"] == max(pontos.values())
 
 
 def test_classificador_padrao_e_reutilizado():
