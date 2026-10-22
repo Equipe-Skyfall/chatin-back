@@ -52,7 +52,8 @@ def _xp(ctx: FerramentaContexto) -> str:
     else:
         situacao = f"Você tem {total} XP e está no nível {nivel.nivel}"
     return (
-        f"{situacao}. Faltam {nivel.xp_faltando_proximo_nivel} XP para o nível {nivel.nivel + 1}."
+        f"{situacao}. Faltam {nivel.xp_faltando_proximo_nivel} XP "
+        f"para chegar ao nível {nivel.nivel + 1}."
     )
 
 
