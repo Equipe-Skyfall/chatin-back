@@ -221,7 +221,9 @@ def prompt_agente_aluno_system(conteudo_modulo: str | None) -> str:
         "não existe nada parecido, e só crie se o aluno confirmar que quer. Deixe claro que "
         "vai levar um tempo (não é instantâneo) e que a trilha fica pública, votável por "
         "outros alunos - nunca prometa que o conteúdo já está pronto na mesma resposta em que "
-        "você chamou essa ferramenta.\n"
+        "você chamou essa ferramenta. Se ela responder que já existem trilhas iguais ou "
+        "parecidas, não crie: mostre-as ao aluno e deixe-o escolher usar uma delas (grátis) "
+        "ou criar mesmo assim (gasta 1 da cota mensal).\n"
         "Fora essas cinco coisas, você não tem acesso a nenhuma outra ferramenta nem a dado "
         "algum do aluno - nunca finja que pode consultar ou alterar qualquer outra coisa."
     )
@@ -248,6 +250,15 @@ def prompt_resumir_conversa() -> str:
         "Resuma a conversa acima entre um aluno e seu professor virtual em no máximo 3 frases, "
         "em português, destacando os principais tópicos e dúvidas tratados. Não cumprimente "
         "ninguém nem se dirija ao leitor - devolva apenas o resumo em si."
+    )
+
+
+def prompt_normalizar_titulo_trilha(titulo: str) -> str:
+    return (
+        "Corrija o título de trilha de estudos abaixo: ortografia, acentuação e "
+        "capitalização de título, em português, sem mudar o assunto nem acrescentar "
+        "palavras. Devolva apenas o título corrigido, sem aspas nem explicação.\n\n"
+        f"Título: {titulo}"
     )
 
 

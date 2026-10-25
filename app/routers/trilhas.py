@@ -1,10 +1,12 @@
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.core.autorizacao import is_admin
 from app.core.exceptions import MateriaNaoEncontradaException
 from app.deps import (
+    AiProviderDep,
     CurrentUserId,
     MateriaRepo,
     SettingsDep,
@@ -25,9 +27,15 @@ from app.schemas.trilha_explorar import (
     TrilhaDetalheOut,
     TrilhaExplorarOut,
     TrilhaModuloItemOut,
+    TrilhaSimilarOut,
     TrilhaTemaItemOut,
+    TrilhaVerificacaoOut,
+    TrilhaVerificarIn,
 )
-from app.services import trilha_cota_service, trilha_estudo_service
+from app.services import trilha_cota_service, trilha_duplicada_service, trilha_estudo_service
+from app.similaridade.embedding import Embedder, get_embedder
+
+EmbedderDep = Annotated[Embedder | None, Depends(get_embedder)]
 
 router = APIRouter(prefix="/trilhas", tags=["trilhas"])
 
@@ -64,6 +72,34 @@ def cota_de_trilhas(
     )
     return CotaTrilhasOut(
         limite=cota.limite, usadas=cota.usadas, restantes=cota.restantes, reseta_em=cota.reseta_em
+    )
+
+
+@router.post("/verificar", response_model=TrilhaVerificacaoOut)
+def verificar_trilha(
+    body: TrilhaVerificarIn,
+    user_id: CurrentUserId,
+    repo: MateriaRepo,
+    explorar_repo: TrilhaExplorarRepo,
+    ai_provider: AiProviderDep,
+    settings: SettingsDep,
+    embedder: EmbedderDep,
+) -> TrilhaVerificacaoOut:
+    """Before creating: is there already a trilha like this? Costs no quota -
+    only creating does. `igual` -> use the existing one; `parecidas` -> offer up
+    to 3; either way the student may still create it anyway."""
+    veredito = trilha_duplicada_service.verificar(
+        body.nome, body.descricao, repo, ai_provider, settings, embedder
+    )
+    similares = []
+    for candidata in veredito.candidatas:
+        item = explorar_repo.obter(user_id, candidata.materia.id)
+        if item is not None:
+            similares.append(
+                TrilhaSimilarOut(**_item_out(item), similaridade=round(candidata.similaridade, 4))
+            )
+    return TrilhaVerificacaoOut(
+        status=veredito.status, nome_normalizado=veredito.nome_normalizado, similares=similares
     )
 
 

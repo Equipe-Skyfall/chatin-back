@@ -51,3 +51,25 @@ class CotaTrilhasOut(BaseModel):
 class EstudandoOut(BaseModel):
     materia_id: UUID
     estudando: bool
+
+
+class TrilhaVerificarIn(BaseModel):
+    nome: str = Field(min_length=2, max_length=200)
+    descricao: str | None = Field(None, max_length=2000)
+
+
+class TrilhaSimilarOut(TrilhaExplorarOut):
+    similaridade: float = Field(
+        description="Similaridade de cosseno com a trilha proposta (0 a 1)."
+    )
+
+
+class TrilhaVerificacaoOut(BaseModel):
+    status: Literal["nova", "parecidas", "igual"] = Field(
+        description=(
+            "igual: já existe uma trilha equivalente (use-a); parecidas: há trilhas próximas "
+            "(ofereça até 3); nova: pode criar."
+        )
+    )
+    nome_normalizado: str = Field(description="Título corrigido pela IA; use-o ao criar.")
+    similares: list[TrilhaSimilarOut]

@@ -611,6 +611,9 @@ class AdkProvider(AIProvider):
             created_at=datetime.fromtimestamp(event.timestamp, tz=UTC),
         )
 
+    def normalizar_titulo_trilha(self, titulo: str) -> str:
+        return self._gemini.normalizar_titulo_trilha(titulo)
+
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         return self._gemini.resumir_conversa(mensagens)
 

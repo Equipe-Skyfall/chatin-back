@@ -350,7 +350,10 @@ def construir_tools_aluno(ctx: FerramentaContexto) -> list[Callable]:
         return executar_ferramenta_aluno("proximos_estudos", {"limite": limite}, ctx)
 
     def criar_minha_trilha(
-        nome_materia: str, titulo_tema: str, descricao_tema: str | None = None
+        nome_materia: str,
+        titulo_tema: str,
+        descricao_tema: str | None = None,
+        forcar_criacao: bool = False,
     ) -> str:
         """Cria uma trilha própria do aluno (matéria + tema) quando
         buscar_conteudo não encontrou nada satisfatório sobre o assunto. A
@@ -362,6 +365,8 @@ def construir_tools_aluno(ctx: FerramentaContexto) -> list[Callable]:
             nome_materia: Nome da matéria (ex.: 'Química Orgânica').
             titulo_tema: Título do primeiro tema dessa trilha.
             descricao_tema: Descrição opcional do foco desse tema.
+            forcar_criacao: Só true depois que o aluno, avisado de trilhas
+                iguais/parecidas, confirmou que quer criar mesmo assim.
         """
         return executar_ferramenta_aluno(
             "criar_minha_trilha",
@@ -369,6 +374,7 @@ def construir_tools_aluno(ctx: FerramentaContexto) -> list[Callable]:
                 "nome_materia": nome_materia,
                 "titulo_tema": titulo_tema,
                 "descricao_tema": descricao_tema,
+                "forcar_criacao": forcar_criacao,
             },
             ctx,
         )

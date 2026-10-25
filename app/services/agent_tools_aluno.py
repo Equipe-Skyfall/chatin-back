@@ -161,6 +161,24 @@ def _proximos_estudos(args: dict[str, Any], ctx: FerramentaContexto) -> str:
     return "\n".join(linhas)
 
 
+def _aviso_trilha_parecida(veredito) -> str:
+    itens = "; ".join(
+        f"'{c.materia.nome}' (materia_id={c.materia.id}, {round(c.similaridade * 100)}% parecida)"
+        for c in veredito.candidatas
+    )
+    abertura = (
+        "Já existe uma trilha praticamente igual"
+        if veredito.status == "igual"
+        else "Existem trilhas parecidas"
+    )
+    return (
+        f"Não criei a trilha. {abertura}: {itens}. Apresente-as ao aluno e pergunte se ele "
+        "prefere usar uma delas (não gasta a cota mensal) ou criar mesmo assim (gasta 1 das "
+        "trilhas do mês). Só se ele insistir em criar, chame criar_minha_trilha de novo com "
+        "forcar_criacao=true."
+    )
+
+
 def _criar_minha_trilha(args: dict[str, Any], ctx: FerramentaContexto) -> str:
     nome_materia = (args.get("nome_materia") or "").strip()
     titulo_tema = (args.get("titulo_tema") or "").strip()
@@ -177,6 +195,11 @@ def _criar_minha_trilha(args: dict[str, Any], ctx: FerramentaContexto) -> str:
         None,
     )
     if existente is None:
+        if ctx.verificar_trilha is not None:
+            veredito = ctx.verificar_trilha(nome_materia, descricao_tema)
+            nome_materia = veredito.nome_normalizado
+            if veredito.status != "nova" and not args.get("forcar_criacao"):
+                return _aviso_trilha_parecida(veredito)
         try:
             trilha_cota_service.exigir_vaga(ctx.user_id, ctx.materia_repo, ctx.limite_trilhas_mes)
         except LimiteTrilhasMensalExcedidoException as exc:
@@ -289,6 +312,13 @@ TOOLS: list[FerramentaDeclaracao] = [
                     "description": "Título do primeiro tema dessa trilha.",
                 },
                 "descricao_tema": {"type": "STRING"},
+                "forcar_criacao": {
+                    "type": "BOOLEAN",
+                    "description": (
+                        "Só true depois que o aluno, avisado de trilhas iguais/parecidas, "
+                        "confirmou que quer criar mesmo assim."
+                    ),
+                },
             },
             "required": ["nome_materia", "titulo_tema"],
         },

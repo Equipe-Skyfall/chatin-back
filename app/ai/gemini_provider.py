@@ -32,6 +32,7 @@ from app.ai.prompts import (
     prompt_feedback_erros,
     prompt_gerar_conteudo_modulo,
     prompt_gerar_questionario,
+    prompt_normalizar_titulo_trilha,
     prompt_planejar_modulos,
     prompt_resumir_conversa,
     prompt_resumo_estudo,
@@ -501,6 +502,20 @@ class GeminiProvider(AIProvider):
             texto="\n".join(texto_partes) if texto_partes else None,
             chamadas_ferramentas=chamadas,
         )
+
+    @_retry_transient
+    def normalizar_titulo_trilha(self, titulo: str) -> str:
+        try:
+            response = self._gerar_conteudo(
+                model=self._settings.GEMINI_MODEL_PROFESSOR,
+                contents=prompt_normalizar_titulo_trilha(titulo),
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise ProvedorIAIndisponivelException(f"Falha ao normalizar título: {exc}") from exc
+
+        texto = (getattr(response, "text", None) or "").strip().strip("\"'")
+        # A reply that isn't a title (empty or a paragraph) is not trusted.
+        return texto if texto and "\n" not in texto and len(texto) <= 200 else titulo.strip()
 
     @_retry_transient
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:

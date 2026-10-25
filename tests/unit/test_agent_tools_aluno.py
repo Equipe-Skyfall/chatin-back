@@ -6,6 +6,7 @@ so dispatch + error-handling is covered too, not just the bare functions.
 """
 
 import uuid
+from types import SimpleNamespace
 
 from app.ai.schemas import FerramentaContexto
 from app.core.exceptions import MateriaNaoEncontradaException
@@ -468,3 +469,54 @@ def test_proximos_estudos_esta_declarada_para_os_dois_provedores():
 
     assert "proximos_estudos" in {t.nome for t in TOOLS}
     assert "proximos_estudos" in {f.__name__ for f in construir_tools_aluno(_ctx())}
+
+
+# --- criar_minha_trilha: checagem de trilha duplicada ---
+
+
+def _veredito(status, *materias, nome="Época Napoleônica"):
+    candidatas = [SimpleNamespace(materia=m, similaridade=0.9) for m in materias]
+    return SimpleNamespace(status=status, nome_normalizado=nome, candidatas=candidatas)
+
+
+def test_criar_minha_trilha_parecida_nao_cria_e_apresenta_as_opcoes():
+    materia_repo = _FakeMateriaRepository()
+    existente = Materia(id=uuid.uuid4(), nome="Napoleão", owner_user_id="outro")
+    ctx = _ctx(materia_repo=materia_repo, background_tasks=_FakeBackgroundTasks())
+    ctx.verificar_trilha = lambda nome, descricao: _veredito("parecidas", existente)
+
+    resultado = executar_ferramenta_aluno(
+        "criar_minha_trilha", {"nome_materia": "napoleao", "titulo_tema": "Império"}, ctx
+    )
+
+    assert materia_repo.materias == {}
+    assert ctx.materia_criada_id is None
+    assert "Napoleão" in resultado and "forcar_criacao" in resultado
+
+
+def test_criar_minha_trilha_forcada_cria_mesmo_com_parecida_e_usa_titulo_corrigido():
+    materia_repo = _FakeMateriaRepository()
+    existente = Materia(id=uuid.uuid4(), nome="Napoleão", owner_user_id="outro")
+    ctx = _ctx(materia_repo=materia_repo, background_tasks=_FakeBackgroundTasks())
+    ctx.verificar_trilha = lambda nome, descricao: _veredito("igual", existente)
+
+    executar_ferramenta_aluno(
+        "criar_minha_trilha",
+        {"nome_materia": "epoca napoleao", "titulo_tema": "Império", "forcar_criacao": True},
+        ctx,
+    )
+
+    (materia,) = materia_repo.materias.values()
+    assert materia.nome == "Época Napoleônica"
+
+
+def test_criar_minha_trilha_nova_segue_normalmente():
+    materia_repo = _FakeMateriaRepository()
+    ctx = _ctx(materia_repo=materia_repo, background_tasks=_FakeBackgroundTasks())
+    ctx.verificar_trilha = lambda nome, descricao: _veredito("nova")
+
+    executar_ferramenta_aluno(
+        "criar_minha_trilha", {"nome_materia": "epoca napoleao", "titulo_tema": "Império"}, ctx
+    )
+
+    assert len(materia_repo.materias) == 1

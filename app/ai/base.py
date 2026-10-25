@@ -116,6 +116,13 @@ class AIProvider(ABC):
         Not abstract: a provider without such a history has nothing to do."""
         return None
 
+    def normalizar_titulo_trilha(self, titulo: str) -> str:
+        """Fixes spelling/accents/capitalization of a trilha title the student
+        typed ("epoca napoleao" -> "Época Napoleão") so the duplicate check
+        compares clean text. Not abstract - a provider that can't (or fails to)
+        just returns the title as typed, and the check carries on (RNF6)."""
+        return titulo.strip()
+
     @abstractmethod
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         """Summarizes a student/teacher conversation into a short digest for
