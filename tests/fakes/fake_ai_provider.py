@@ -59,6 +59,9 @@ class FakeAIProvider(AIProvider):
         self.pesquisar_web_calls = 0
         self.trocas_registradas: list[tuple] = []
         self.falhar_pesquisar_web = False
+        self.normalizar_titulo_calls = 0
+        self.falhar_normalizar_titulo = False
+        self.titulo_normalizado_fixo: str | None = None
         self.resultado_pesquisa_web: ResultadoBuscaWeb | None = None
         # When set, `conversar_com_agente_aluno` calls the student agent's
         # `buscar_fontes_web` tool with this query, like the model would.
@@ -203,6 +206,12 @@ class FakeAIProvider(AIProvider):
 
     def registrar_troca(self, conversa_id, pergunta, resposta) -> None:
         self.trocas_registradas.append((conversa_id, pergunta, resposta))
+
+    def normalizar_titulo_trilha(self, titulo: str) -> str:
+        self.normalizar_titulo_calls += 1
+        if self.falhar_normalizar_titulo:
+            raise RuntimeError("falha simulada ao normalizar título")
+        return self.titulo_normalizado_fixo or titulo.strip()
 
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         self.resumir_conversa_calls += 1
