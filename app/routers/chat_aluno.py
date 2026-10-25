@@ -34,7 +34,7 @@ from app.schemas.chat import (
     MensagemOut,
     ResumoConversaOut,
 )
-from app.services import atalho_service, chat_aluno_service
+from app.services import atalho_service, chat_aluno_service, trilha_duplicada_service
 from app.services.progresso_service import verificar_acesso_ao_modulo
 
 router = APIRouter(prefix="/chat", tags=["chat-aluno"])
@@ -87,6 +87,7 @@ def enviar_mensagem(
         ai_provider=ai_provider,
         pool_size=settings.QUESTIONARIO_POOL_SIZE,
         limite_trilhas_mes=settings.TRILHAS_POR_MES,
+        verificar_trilha=trilha_duplicada_service.verificador(materia_repo, ai_provider, settings),
         user_id=user_id,
         conversa_id=conversa.id,
         background_tasks=background_tasks,
@@ -188,6 +189,7 @@ def iniciar_licao(
         ai_provider=ai_provider,
         pool_size=settings.QUESTIONARIO_POOL_SIZE,
         limite_trilhas_mes=settings.TRILHAS_POR_MES,
+        verificar_trilha=trilha_duplicada_service.verificador(materia_repo, ai_provider, settings),
         user_id=user_id,
         conversa_id=conversa.id,
         background_tasks=background_tasks,

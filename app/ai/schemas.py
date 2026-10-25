@@ -5,6 +5,7 @@ that's what makes swapping the concrete strategy a no-op for callers.
 """
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
@@ -223,6 +224,9 @@ class FerramentaContexto:
     background_tasks: BackgroundTasks | None = None
     # Monthly cap on trilhas the student may create (the `criar_minha_trilha` tool).
     limite_trilhas_mes: int = 3
+    # Duplicate check for `criar_minha_trilha`: (nome, descricao) -> Veredito
+    # (`trilha_duplicada_service.verificador`). None = no check (tests, admin).
+    verificar_trilha: Callable[[str, str | None], Any] | None = None
     # Filled by the student agent's `buscar_fontes_web` tool during a turn;
     # `chat_aluno_service.enviar_mensagem` persists it with the reply.
     fontes_web: list[FonteWeb] = field(default_factory=list)
