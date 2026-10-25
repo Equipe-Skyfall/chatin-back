@@ -271,3 +271,54 @@ def test_criar_tema_encadeia_a_geracao_de_modulos_so_quando_pedido(
     assert chamadas == [
         {"completar_criacao_trilha_pessoal": "trilha_pessoal"}.get(esperado, "tema")
     ]
+
+
+def test_verificar_trilha_devolve_status_titulo_corrigido_e_similares(api):
+    from app.deps import get_ai_provider
+    from app.similaridade.embedding import get_embedder
+    from tests.fakes.fake_ai_provider import FakeAIProvider
+
+    class _Embedder:
+        dim = 2
+
+        def vetor(self, texto):
+            return [1.0, 0.0] if "napoleao" in texto.lower() else [0.0, 1.0]
+
+    existente = Materia(
+        id=uuid.uuid4(), nome="Napoleão", owner_user_id=None, created_at=datetime.now(UTC)
+    )
+    ai = FakeAIProvider()
+    ai.titulo_normalizado_fixo = "Época Napoleão"
+    api.estado.materias = SimpleNamespace(list_publica=lambda: [existente])
+    api.estado.explorar = SimpleNamespace(
+        obter=lambda user_id, materia_id: ItemExplorar(
+            materia=existente, autor_nome=None, temas=1, modulos=2, alunos=3, votos=4,
+            meu_voto=None, estudando=True, propria=False, pronta=True,
+        )
+    )  # fmt: skip
+    app = api.estado.app
+    app.dependency_overrides[get_ai_provider] = lambda: ai
+    app.dependency_overrides[get_embedder] = lambda: _Embedder()
+
+    resposta = api.client.post("/trilhas/verificar", json={"nome": "epoca napoleao"})
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert (corpo["status"], corpo["nome_normalizado"]) == ("igual", "Época Napoleão")
+    (similar,) = corpo["similares"]
+    assert similar["id"] == str(existente.id) and similar["similaridade"] == 1.0
+    assert similar["verificada"] is True
+
+
+def test_verificar_trilha_sem_modelo_libera_a_criacao(api):
+    from app.deps import get_ai_provider
+    from app.similaridade.embedding import get_embedder
+    from tests.fakes.fake_ai_provider import FakeAIProvider
+
+    app = api.estado.app
+    app.dependency_overrides[get_ai_provider] = lambda: FakeAIProvider()
+    app.dependency_overrides[get_embedder] = lambda: None
+
+    corpo = api.client.post("/trilhas/verificar", json={"nome": "Qualquer"}).json()
+
+    assert corpo == {"status": "nova", "nome_normalizado": "Qualquer", "similares": []}
