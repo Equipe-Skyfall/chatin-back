@@ -20,6 +20,10 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 _TOKEN = re.compile(r"\w+", re.UNICODE)
+# Function words add no subject and drag every title's average vector together.
+_STOPWORDS = frozenset(
+    "a o as os um uma uns umas de do da dos das em no na nos nas por para com e ou ao aos".split()
+)
 
 
 class Embedder(Protocol):
@@ -59,7 +63,9 @@ class Word2VecEmbedder:
     def vetor(self, texto: str) -> list[float] | None:
         vetores = [
             v
-            for v in (self._vetor_palavra(p) for p in _TOKEN.findall(texto.lower()))
+            for v in (
+                self._vetor_palavra(p) for p in _TOKEN.findall(texto.lower()) if p not in _STOPWORDS
+            )
             if v is not None
         ]
         if not vetores:

@@ -22,7 +22,8 @@ class IndiceTrilhas:
         sqlite_vec.load(self._db)
         self._db.enable_load_extension(False)
         self._db.execute(
-            f"create virtual table trilhas using vec0(embedding float[{dim}] distance_metric=cosine)"
+            "create virtual table trilhas using "
+            f"vec0(embedding float[{dim}] distance_metric=cosine)"
         )
         self._rowid_por_id: dict[UUID, int] = {}
         self._id_por_rowid: dict[int, UUID] = {}

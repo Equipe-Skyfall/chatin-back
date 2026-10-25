@@ -64,16 +64,20 @@ def verificar(
         return Veredito("nova", nome_normalizado)
 
     materias = {m.id: m for m in repo.list_publica()}
-    indice = indice or get_indice(embedder.dim)
-    indice.sincronizar({i: _texto(m.nome, m.descricao) for i, m in materias.items()}, embedder)
-
-    vetor = embedder.vetor(_texto(nome_normalizado, descricao))
-    if vetor is None:
+    try:
+        indice = indice or get_indice(embedder.dim)
+        indice.sincronizar({i: _texto(m.nome, m.descricao) for i, m in materias.items()}, embedder)
+        vetor = embedder.vetor(_texto(nome_normalizado, descricao))
+        if vetor is None:
+            return Veredito("nova", nome_normalizado)
+        encontradas = indice.buscar(vetor, MAX_SIMILARES)
+    except Exception:  # noqa: BLE001 - RNF6: índice/modelo quebrado nunca bloqueia a criação
+        logger.warning("Falha na checagem de trilha duplicada; liberando a criação.", exc_info=True)
         return Veredito("nova", nome_normalizado)
 
     candidatas = [
         Candidata(materias[materia_id], similaridade)
-        for materia_id, similaridade in indice.buscar(vetor, MAX_SIMILARES)
+        for materia_id, similaridade in encontradas
         if materia_id in materias and similaridade >= settings.TRILHA_SIMILARIDADE_PARECIDA
     ]
     if not candidatas:

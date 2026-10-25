@@ -139,3 +139,44 @@ def test_indice_acompanha_o_banco_sem_reembutir_o_que_nao_mudou():
     napoleao_editada = algebra
     napoleao_editada.nome = "quimica organica"  # editada no banco
     assert checar("quimica organica").status == "igual"
+
+
+def test_indice_quebrado_libera_a_criacao_em_vez_de_dar_erro():
+    class _IndiceQuebrado:
+        def sincronizar(self, textos, embedder):
+            raise RuntimeError("extensão do sqlite não carregou")
+
+    embedder = _Embedder()
+    veredito = trilha_duplicada_service.verificar(
+        "epoca napoleao", None, _Repo(_materia("epoca napoleao")), FakeAIProvider(), CONFIG,
+        embedder, _IndiceQuebrado(),
+    )  # fmt: skip
+
+    assert (veredito.status, veredito.candidatas) == ("nova", [])
+
+
+def test_embedder_que_lanca_libera_a_criacao():
+    class _EmbedderQuebrado(_Embedder):
+        def vetor(self, texto):
+            raise RuntimeError("modelo corrompido")
+
+    assert (
+        _verificar("epoca napoleao", _Repo(_materia("x")), embedder=_EmbedderQuebrado()).status
+        == "nova"
+    )
+
+
+def test_stopwords_nao_entram_no_vetor():
+    from app.similaridade.embedding import Word2VecEmbedder
+
+    class _KV:
+        vector_size = 2
+        key_to_index = {"brasil": 0, "de": 1}
+
+        def __getitem__(self, palavra):
+            return [1.0, 0.0] if palavra == "brasil" else [0.0, 1.0]
+
+    embedder = Word2VecEmbedder(_KV())
+
+    assert embedder.vetor("de brasil de") == embedder.vetor("brasil")
+    assert embedder.vetor("de") is None
