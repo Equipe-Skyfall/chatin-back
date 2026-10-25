@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     QUESTIONARIO_POOL_SIZE: int = 12
     # How many trilhas (matérias) a non-admin student may create per calendar month.
     TRILHAS_POR_MES: int = 3
+
+    # Duplicate-trilha check (Word2Vec + cosine). Without a model file the check
+    # is skipped and creation proceeds as before (RNF6).
+    W2V_MODEL_PATH: str | None = None
+    W2V_VOCAB_LIMIT: int = 200_000
+    # Cosine similarity at or above this = same trilha (reuse it); between the two = similar.
+    TRILHA_SIMILARIDADE_IGUAL: float = 0.95
+    TRILHA_SIMILARIDADE_PARECIDA: float = 0.70
     TENTATIVA_NUM_QUESTOES: int = 5
     PONTUACAO_MINIMA_APROVACAO: float = 60.0
     # Answers short, common requests ("como estou indo?") without calling the LLM.
