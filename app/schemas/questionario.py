@@ -68,3 +68,33 @@ class QuestaoUpdate(BaseModel):
                 "alternativas devem conter exatamente as letras A, B, C, D, E, uma vez cada."
             )
         return v
+
+
+MAX_QUESTOES_POR_QUESTIONARIO = 50
+
+
+class QuestaoCreate(BaseModel):
+    """A questão written by hand: unlike `QuestaoUpdate` nothing is optional,
+    since there is no generated version to fall back on."""
+
+    enunciado: str = Field(..., min_length=1)
+    alternativas: list[AlternativaOut] = Field(..., min_length=5, max_length=5)
+    explicacao: str | None = None
+    resposta_correta: Letra
+
+    @field_validator("alternativas")
+    @classmethod
+    def _letras_devem_ser_a_a_e(cls, v: list[AlternativaOut]) -> list[AlternativaOut]:
+        if {alt.letra for alt in v} != _LETRAS_VALIDAS:
+            raise ValueError(
+                "alternativas devem conter exatamente as letras A, B, C, D, E, uma vez cada."
+            )
+        return v
+
+
+class QuestionarioCreate(BaseModel):
+    """A whole quiz in one request. The order of `questoes` is the order kept."""
+
+    questoes: list[QuestaoCreate] = Field(
+        ..., min_length=1, max_length=MAX_QUESTOES_POR_QUESTIONARIO
+    )

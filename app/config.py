@@ -33,10 +33,27 @@ class Settings(BaseSettings):
     GEMINI_MODEL_AGENTE: str = "gemini-2.5-flash"
     GEMINI_MODEL_PROFESSOR: str = "gemini-2.5-flash"
 
+    # How long a single request to Gemini may take before it is abandoned and
+    # reported as a timeout (see app.ai.resiliencia). Without a bound, a hung
+    # call holds a worker until the platform kills the whole request.
+    GEMINI_TIMEOUT_SECONDS: float = 60.0
+
     # Content generation tuning
     QUESTIONARIO_POOL_SIZE: int = 12
+    # How many trilhas (matérias) a non-admin student may create per calendar month.
+    TRILHAS_POR_MES: int = 3
+
+    # Duplicate-trilha check (Word2Vec + cosine). Without a model file the check
+    # is skipped and creation proceeds as before (RNF6).
+    W2V_MODEL_PATH: str | None = None
+    W2V_VOCAB_LIMIT: int = 200_000
+    # Cosine similarity at or above this = same trilha (reuse it); between the two = similar.
+    TRILHA_SIMILARIDADE_IGUAL: float = 0.95
+    TRILHA_SIMILARIDADE_PARECIDA: float = 0.70
     TENTATIVA_NUM_QUESTOES: int = 5
     PONTUACAO_MINIMA_APROVACAO: float = 60.0
+    # Answers short, common requests ("como estou indo?") without calling the LLM.
+    ATALHOS_CHAT_ATIVOS: bool = True
     AGENTE_MAX_ITERACOES: int = 8  # safety cap on tool-call round-trips per chat turn
 
     # Student chat: how many of a conversation's most recent messages are sent

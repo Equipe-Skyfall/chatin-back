@@ -7,23 +7,29 @@ separately persisted, so the levels can't drift out of sync with each other.
 
 import uuid
 
+from app.core.exceptions import ModuloBloqueadoException, ModuloNaoEncontradoException
 from app.models.materia import Materia
 from app.models.modulo import STATUS_PRONTO as MODULO_STATUS_PRONTO
 from app.models.modulo import Modulo
 from app.models.progresso import STATUS_CONCLUIDO, ProgressoUsuario
 from app.models.tema import STATUS_PRONTO as TEMA_STATUS_PRONTO
 from app.models.tema import Tema
+from app.repositories.materia_repository import MateriaRepository
+from app.repositories.modulo_repository import ModuloRepository
 from app.repositories.progresso_repository import ProgressoRepository
+from app.repositories.tema_repository import TemaRepository
+from app.repositories.trilha_estudando_repository import TrilhaEstudandoRepository
 from app.repositories.xp_repository import XpRepository
 from app.schemas.common import EstadoProgresso
 from app.schemas.progresso import (
+    DesempenhoTemaOut,
     ProgressoMateriaOut,
     ProgressoModuloOut,
     ProgressoOut,
     ProgressoTemaOut,
 )
 from app.schemas.trilha import TrilhaMateriaOut, TrilhaModuloOut, TrilhaOut, TrilhaTemaOut
-from app.services import xp_service
+from app.services import dificuldade_service, xp_service
 
 
 def _modulo_concluido(progresso: ProgressoUsuario | None) -> bool:
@@ -55,7 +61,11 @@ def _prontos(items: list, status_pronto: str) -> list:
     return sorted((i for i in items if i.status == status_pronto), key=lambda i: i.ordem)
 
 
-def montar_trilha(materias: list[Materia], progresso_rows: list[ProgressoUsuario]) -> TrilhaOut:
+def montar_trilha(
+    materias: list[Materia],
+    progresso_rows: list[ProgressoUsuario],
+    modulos_com_licao: set[uuid.UUID] | frozenset = frozenset(),
+) -> TrilhaOut:
     progresso_map = {p.modulo_id: p for p in progresso_rows}
     materias_out: list[TrilhaMateriaOut] = []
 
@@ -81,26 +91,40 @@ def montar_trilha(materias: list[Materia], progresso_rows: list[ProgressoUsuario
                     ordem=tema.ordem,
                     estado=tema_estado,
                     modulos=[
-                        TrilhaModuloOut(id=m.id, titulo=m.titulo, ordem=m.ordem, estado=e)
+                        TrilhaModuloOut(
+                            id=m.id,
+                            titulo=m.titulo,
+                            ordem=m.ordem,
+                            estado=e,
+                            start_lesson=m.id in modulos_com_licao,
+                        )
                         for m, e in estados_modulos
                     ],
                 )
             )
             tema_anterior_concluido = tema_concluido
 
-        materias_out.append(
-            TrilhaMateriaOut(id=materia.id, nome=materia.nome, temas=temas_out)
-        )
+        materias_out.append(TrilhaMateriaOut(id=materia.id, nome=materia.nome, temas=temas_out))
 
     return TrilhaOut(materias=materias_out)
+
+
+def desempenho_tema_out(corretas: int, total: int) -> DesempenhoTemaOut:
+    return DesempenhoTemaOut(
+        nivel=dificuldade_service.classificar_desempenho(corretas, total),
+        taxa_acerto=dificuldade_service.taxa_acerto(corretas, total),
+        total_respostas=total,
+    )
 
 
 def montar_progresso(
     materias: list[Materia],
     progresso_rows: list[ProgressoUsuario],
     xp_por_materia: dict[uuid.UUID, int],
+    desempenho_por_tema: dict[uuid.UUID, tuple[int, int]] | None = None,
 ) -> ProgressoOut:
     progresso_map = {p.modulo_id: p for p in progresso_rows}
+    desempenho_por_tema = desempenho_por_tema or {}
     materias_out: list[ProgressoMateriaOut] = []
 
     for materia in sorted(materias, key=lambda m: m.nome):
@@ -140,6 +164,7 @@ def montar_progresso(
                     titulo=tema.titulo,
                     estado=tema_estado,
                     percentual_completo=round(percentual_tema, 2),
+                    desempenho=desempenho_tema_out(*desempenho_por_tema.get(tema.id, (0, 0))),
                     modulos=modulos_out,
                 )
             )
@@ -248,3 +273,53 @@ def atualizar_progresso(
     )
 
     return progresso
+
+
+def materia_visivel_ao_aluno(
+    tema: Tema,
+    user_id: str,
+    materia_repo: MateriaRepository,
+    trilha_estudando_repo: TrilhaEstudandoRepository | None = None,
+) -> bool:
+    """The tema's matéria is global, the student's own, or a community trilha
+    they adopted (`trilhas_estudando`) - any other student's custom matéria must
+    look like it doesn't exist."""
+    materia = materia_repo.get(tema.materia_id)
+    if materia is None:
+        return False
+    if materia.owner_user_id in (None, user_id):
+        return True
+    return trilha_estudando_repo is not None and trilha_estudando_repo.existe(user_id, materia.id)
+
+
+def verificar_acesso_ao_modulo(
+    modulo_id: uuid.UUID,
+    user_id: str,
+    modulo_repo: ModuloRepository,
+    tema_repo: TemaRepository,
+    progresso_repo: ProgressoRepository,
+    materia_repo: MateriaRepository,
+    trilha_estudando_repo: TrilhaEstudandoRepository | None = None,
+) -> Modulo:
+    """The módulo must be ready, unlocked for this student in their trail and in
+    a matéria they study (global, their own or an adopted community trilha).
+    Another student's custom matéria answers "not found", like a missing módulo,
+    so its existence isn't revealed."""
+    modulo = modulo_repo.get(modulo_id)
+    if modulo is None or modulo.status != MODULO_STATUS_PRONTO:
+        raise ModuloNaoEncontradoException(modulo_id)
+
+    tema = tema_repo.get(modulo.tema_id)
+    if not materia_visivel_ao_aluno(tema, user_id, materia_repo, trilha_estudando_repo):
+        raise ModuloNaoEncontradoException(modulo_id)
+
+    temas_da_materia = tema_repo.list_by_materia_with_modulos(tema.materia_id)
+    modulo_ids = [m.id for t in temas_da_materia for m in t.modulos]
+    progresso_map = {
+        p.modulo_id: p for p in progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
+    }
+    tema_est = estado_tema(tema, temas_da_materia, progresso_map)
+    tema_com_modulos = next(t for t in temas_da_materia if t.id == tema.id)
+    if estado_modulo(modulo, tema_com_modulos.modulos, tema_est, progresso_map) == "bloqueado":
+        raise ModuloBloqueadoException()
+    return modulo

@@ -1,6 +1,8 @@
 from app.models.conversa import Conversa, Mensagem
 from app.models.fonte import Fonte
 from app.models.gabarito import Gabarito
+from app.models.ia_consumo import IaConsumo
+from app.models.licao import LicaoIniciada
 from app.models.materia import Materia
 from app.models.modulo import Modulo
 from app.models.perfil import PerfilUsuario
@@ -14,6 +16,7 @@ from app.models.tentativa import (
     Tentativa,
     TentativaQuestao,
 )
+from app.models.trilha_estudando import TrilhaEstudando
 from app.models.voto_materia import VotoMateria
 from app.models.xp import XpEvento
 
@@ -35,4 +38,7 @@ __all__ = [
     "PerfilUsuario",
     "VotoMateria",
     "ResumoEstudo",
+    "IaConsumo",
+    "LicaoIniciada",
+    "TrilhaEstudando",
 ]

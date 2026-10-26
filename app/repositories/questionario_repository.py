@@ -27,6 +27,14 @@ class QuestionarioRepository(SqlAlchemyRepository[Questionario]):
         stmt = select(Questionario).where(Questionario.modulo_id == modulo_id)
         return self.db.execute(stmt).scalar_one_or_none()
 
+    def get_tema_id(self, questionario_id: uuid.UUID) -> uuid.UUID | None:
+        stmt = (
+            select(Modulo.tema_id)
+            .join(Questionario, Questionario.modulo_id == Modulo.id)
+            .where(Questionario.id == questionario_id)
+        )
+        return self.db.execute(stmt).scalar_one_or_none()
+
     def add_questao(self, questao: Questao) -> Questao:
         self.db.add(questao)
         return questao
@@ -107,6 +115,14 @@ class QuestionarioRepository(SqlAlchemyRepository[Questionario]):
         return {
             row.questao_id: (row.total, row.erradas / row.total) for row in self.db.execute(stmt)
         }
+
+    def proxima_ordem(self, questionario_id: uuid.UUID) -> int:
+        """Where a new questão goes: after the last one (0 for an empty quiz).
+        Deleting a questão leaves its `ordem` unused rather than renumbering the
+        rest, so this is `max + 1`, never `count`."""
+        stmt = select(func.max(Questao.ordem)).where(Questao.questionario_id == questionario_id)
+        maior = self.db.execute(stmt).scalar_one_or_none()
+        return 0 if maior is None else maior + 1
 
     def get_questao_by_id(self, questao_id: uuid.UUID) -> Questao | None:
         return self.db.get(Questao, questao_id)

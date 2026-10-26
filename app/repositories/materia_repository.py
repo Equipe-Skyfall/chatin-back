@@ -1,13 +1,26 @@
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.db.session import DbSession
 from app.models.materia import Materia
 from app.models.tema import Tema
+from app.models.trilha_estudando import TrilhaEstudando
 from app.repositories.base import SqlAlchemyRepository
+
+
+def _estudadas_por(user_id: str):
+    """Matérias this student studies: the global (verified) curriculum, their
+    own trilhas, and the community trilhas they adopted (`trilhas_estudando`)."""
+    adotadas = select(TrilhaEstudando.materia_id).where(TrilhaEstudando.user_id == user_id)
+    return or_(
+        Materia.owner_user_id.is_(None),
+        Materia.owner_user_id == user_id,
+        Materia.id.in_(adotadas),
+    )
 
 
 class MateriaRepository(SqlAlchemyRepository[Materia]):
@@ -40,28 +53,32 @@ class MateriaRepository(SqlAlchemyRepository[Materia]):
         return list(self.db.execute(stmt).scalars().all())
 
     def list_minhas_e_globais(self, user_id: str) -> list[Materia]:
-        """Global curriculum + only *this* user's own trilhas - never
-        another student's. Used for a student's personal rollups (XP per
-        matéria) where every other student's trilha would just be noise."""
-        stmt = (
-            select(Materia)
-            .where(or_(Materia.owner_user_id.is_(None), Materia.owner_user_id == user_id))
-            .order_by(Materia.nome)
-        )
+        """The trilhas this student studies - global curriculum, their own and
+        the community ones they adopted (`_estudadas_por`) - never any other
+        student's. Used for a student's personal rollups (XP per matéria)
+        where every other student's trilha would just be noise."""
+        stmt = select(Materia).where(_estudadas_por(user_id)).order_by(Materia.nome)
         return list(self.db.execute(stmt).scalars().all())
 
     def list_minhas_e_globais_with_temas_e_modulos(self, user_id: str) -> list[Materia]:
         """Same as `list_minhas_e_globais`, eager-loaded - used by
-        `GET /progresso`, where a student's own trilha progress belongs
-        alongside their progress in the shared curriculum (but not the
-        thousands of other students' trilhas they've never touched)."""
+        `GET /trilha` and `GET /progresso`, where the trilhas a student studies
+        (shared curriculum, their own and adopted ones) belong together, but
+        not the thousands of other students' trilhas they've never touched."""
         stmt = (
             select(Materia)
-            .where(or_(Materia.owner_user_id.is_(None), Materia.owner_user_id == user_id))
+            .where(_estudadas_por(user_id))
             .options(selectinload(Materia.temas).selectinload(Tema.modulos))
             .order_by(Materia.nome)
         )
         return list(self.db.execute(stmt).scalars().unique().all())
+
+    def count_criadas_desde(self, user_id: str, desde: datetime) -> int:
+        """Trilhas this student created since `desde` (monthly quota)."""
+        stmt = select(func.count(Materia.id)).where(
+            Materia.owner_user_id == user_id, Materia.created_at >= desde
+        )
+        return int(self.db.execute(stmt).scalar_one())
 
     def get_by_nome(self, nome: str) -> Materia | None:
         stmt = select(Materia).where(Materia.nome == nome)

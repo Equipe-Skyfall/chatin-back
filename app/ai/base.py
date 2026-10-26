@@ -7,6 +7,7 @@ one) means writing one new class here - zero changes to business logic.
 is the test double.
 """
 
+import uuid
 from abc import ABC, abstractmethod
 
 from app.ai.schemas import (
@@ -17,6 +18,7 @@ from app.ai.schemas import (
     MensagemAgente,
     PlanoModulos,
     QuestionarioGerado,
+    ResultadoBuscaWeb,
     ResumoEstudoGerado,
 )
 
@@ -99,6 +101,27 @@ class AIProvider(ABC):
         any) the same way the old plain Q&A used to be. `mensagens` is the
         full history including the turn just asked, same convention as
         `conversar_com_ferramentas`."""
+
+    def pesquisar_web(self, consulta: str) -> ResultadoBuscaWeb:
+        """Grounded web search for the student chat (US-10): a synthesized
+        answer plus the pages it cited. Not abstract - a provider without
+        web grounding just returns no sources, and the chat carries on
+        without them (RNF6)."""
+        return ResultadoBuscaWeb(resumo="")
+
+    def registrar_troca(self, conversa_id: uuid.UUID, pergunta: str, resposta: str) -> None:
+        """Records a question and answer the app produced without the agent (a
+        chat shortcut), so a provider that keeps its own conversation history
+        (ADK's session) still shows the turn and the agent still remembers it.
+        Not abstract: a provider without such a history has nothing to do."""
+        return None
+
+    def normalizar_titulo_trilha(self, titulo: str) -> str:
+        """Fixes spelling/accents/capitalization of a trilha title the student
+        typed ("epoca napoleao" -> "Época Napoleão") so the duplicate check
+        compares clean text. Not abstract - a provider that can't (or fails to)
+        just returns the title as typed, and the check carries on (RNF6)."""
+        return titulo.strip()
 
     @abstractmethod
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:

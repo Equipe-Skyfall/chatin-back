@@ -85,5 +85,12 @@ class Mensagem(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     conteudo: Mapped[str | None] = mapped_column(Text, nullable=True)
     chamadas_ferramentas: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     ordem: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Web pages that grounded this (assistant) message: [{titulo, url, dominio,
+    # consulta}]. `pergunta_id` is the user message that prompted the search -
+    # the moment of the conversation the sources belong to.
+    fontes: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    pergunta_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("mensagens.id", ondelete="SET NULL"), nullable=True
+    )
 
     conversa: Mapped["Conversa"] = relationship(back_populates="mensagens")

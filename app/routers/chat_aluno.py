@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks
@@ -9,12 +10,16 @@ from app.deps import (
     AiProviderDep,
     ConversaRepo,
     CurrentUserId,
+    LicaoRepo,
     MateriaRepo,
     ModuloRepo,
+    PerfilRepo,
     ProgressoRepo,
     QuestionarioRepo,
     SettingsDep,
     TemaRepo,
+    TentativaRepo,
+    TrilhaEstudandoRepo,
     VotoRepo,
     XpRepo,
 )
@@ -23,10 +28,14 @@ from app.schemas.chat import (
     AlunoChatMensagemInput,
     ChatRespostaOut,
     ConversaOut,
+    FonteWebOut,
+    LicaoInput,
+    LicaoRespostaOut,
     MensagemOut,
     ResumoConversaOut,
 )
-from app.services import chat_aluno_service
+from app.services import atalho_service, chat_aluno_service, trilha_duplicada_service
+from app.services.progresso_service import verificar_acesso_ao_modulo
 
 router = APIRouter(prefix="/chat", tags=["chat-aluno"])
 
@@ -42,7 +51,9 @@ def enviar_mensagem(
     questionario_repo: QuestionarioRepo,
     xp_repo: XpRepo,
     progresso_repo: ProgressoRepo,
+    tentativa_repo: TentativaRepo,
     voto_repo: VotoRepo,
+    perfil_repo: PerfilRepo,
     ai_provider: AiProviderDep,
     settings: SettingsDep,
     background_tasks: BackgroundTasks,
@@ -71,12 +82,22 @@ def enviar_mensagem(
         questionario_repo=questionario_repo,
         xp_repo=xp_repo,
         progresso_repo=progresso_repo,
+        tentativa_repo=tentativa_repo,
         voto_repo=voto_repo,
         ai_provider=ai_provider,
         pool_size=settings.QUESTIONARIO_POOL_SIZE,
+        limite_trilhas_mes=settings.TRILHAS_POR_MES,
+        verificar_trilha=trilha_duplicada_service.verificador(materia_repo, ai_provider, settings),
         user_id=user_id,
         conversa_id=conversa.id,
         background_tasks=background_tasks,
+    )
+    # A clear, common request ("como estou indo?") is answered from our own
+    # data with no LLM call; anything else goes to the agent as before.
+    resposta_pronta = (
+        atalho_service.tentar_atalho(body.texto, ctx, perfil_repo)
+        if settings.ATALHOS_CHAT_ATIVOS
+        else None
     )
     resposta = chat_aluno_service.enviar_mensagem(
         conversa,
@@ -86,13 +107,110 @@ def enviar_mensagem(
         ai_provider,
         ctx,
         settings.MEMORIA_JANELA_MENSAGENS,
+        resposta_pronta=resposta_pronta,
     )
     return ChatRespostaOut(
         conversa_id=conversa.id,
         resposta=resposta,
+        fontes=[FonteWebOut(**asdict(f)) for f in ctx.fontes_web],
         materia_criada_id=ctx.materia_criada_id,
         tema_criado_id=ctx.tema_criado_id,
     )
+
+
+@router.post("/licao", response_model=LicaoRespostaOut)
+def iniciar_licao(
+    body: LicaoInput,
+    user_id: CurrentUserId,
+    conversa_repo: ConversaRepo,
+    materia_repo: MateriaRepo,
+    tema_repo: TemaRepo,
+    modulo_repo: ModuloRepo,
+    questionario_repo: QuestionarioRepo,
+    xp_repo: XpRepo,
+    progresso_repo: ProgressoRepo,
+    tentativa_repo: TentativaRepo,
+    voto_repo: VotoRepo,
+    licao_repo: LicaoRepo,
+    trilha_estudando_repo: TrilhaEstudandoRepo,
+    ai_provider: AiProviderDep,
+    settings: SettingsDep,
+    background_tasks: BackgroundTasks,
+) -> LicaoRespostaOut:
+    """Opens the módulo with the agent explaining it (`start_lesson`).
+    Idempotent: when the student already had the lesson nothing is sent to the
+    model and the response points at their latest conversation on the módulo
+    (`conversa_id` null when they have none yet)."""
+    # Same access the quiz needs: ready, unlocked and visible in this student's trail.
+    modulo = verificar_acesso_ao_modulo(
+        body.modulo_id,
+        user_id,
+        modulo_repo,
+        tema_repo,
+        progresso_repo,
+        materia_repo,
+        trilha_estudando_repo,
+    )
+
+    if licao_repo.existe(user_id, modulo.id):
+        existentes = [
+            c for c in conversa_repo.list_by_user(user_id, TIPO_ALUNO) if c.modulo_id == modulo.id
+        ]
+        conversa_id = body.conversa_id or (existentes[0].id if existentes else None)
+        return LicaoRespostaOut(conversa_id=conversa_id, resposta=None, ja_enviada=True)
+
+    criada = body.conversa_id is None
+    if criada:
+        conversa = Conversa(
+            user_id=user_id, titulo=modulo.titulo[:200], tipo=TIPO_ALUNO, modulo_id=modulo.id
+        )
+        conversa_repo.add(conversa)
+        conversa_repo.commit()
+        conversa_repo.refresh(conversa)
+    else:
+        conversa = conversa_repo.get(body.conversa_id)
+        if (
+            conversa is None
+            or conversa.user_id != user_id
+            or conversa.tipo != TIPO_ALUNO
+            or conversa.modulo_id != modulo.id
+        ):
+            raise ConversaNaoEncontradaException(body.conversa_id)
+
+    ctx = FerramentaContexto(
+        materia_repo=materia_repo,
+        tema_repo=tema_repo,
+        modulo_repo=modulo_repo,
+        questionario_repo=questionario_repo,
+        xp_repo=xp_repo,
+        progresso_repo=progresso_repo,
+        tentativa_repo=tentativa_repo,
+        voto_repo=voto_repo,
+        ai_provider=ai_provider,
+        pool_size=settings.QUESTIONARIO_POOL_SIZE,
+        limite_trilhas_mes=settings.TRILHAS_POR_MES,
+        verificar_trilha=trilha_duplicada_service.verificador(materia_repo, ai_provider, settings),
+        user_id=user_id,
+        conversa_id=conversa.id,
+        background_tasks=background_tasks,
+    )
+    try:
+        resposta = chat_aluno_service.enviar_licao(
+            conversa,
+            user_id,
+            conversa_repo,
+            modulo_repo,
+            licao_repo,
+            ai_provider,
+            ctx,
+        )
+    except Exception:
+        if criada:  # don't leave an empty conversation behind when the model failed
+            conversa_repo.rollback()
+            conversa_repo.delete(conversa)
+            conversa_repo.commit()
+        raise
+    return LicaoRespostaOut(conversa_id=conversa.id, resposta=resposta, ja_enviada=resposta is None)
 
 
 @router.get("", response_model=list[ConversaOut])
@@ -137,5 +255,5 @@ def obter_historico(
     if isinstance(ai_provider, AdkProvider):
         historico_adk = ai_provider.obter_historico_sessao(conversa_id)
         if historico_adk is not None:
-            return historico_adk
+            return chat_aluno_service.anexar_fontes_ao_historico(historico_adk, conversa.mensagens)
     return conversa.mensagens

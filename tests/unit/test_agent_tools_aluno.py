@@ -6,6 +6,7 @@ so dispatch + error-handling is covered too, not just the bare functions.
 """
 
 import uuid
+from types import SimpleNamespace
 
 from app.ai.schemas import FerramentaContexto
 from app.core.exceptions import MateriaNaoEncontradaException
@@ -34,6 +35,9 @@ class _FakeMateriaRepository:
 
     def list_minhas_e_globais_with_temas_e_modulos(self, user_id: str) -> list[Materia]:
         return self.list_minhas_e_globais(user_id)
+
+    def count_criadas_desde(self, user_id: str, desde) -> int:
+        return sum(1 for m in self.materias.values() if m.owner_user_id == user_id)
 
     def add(self, materia: Materia) -> Materia:
         if materia.id is None:
@@ -97,6 +101,17 @@ class _FakeProgressoRepository:
         return [r for r in self._rows if r.modulo_id in modulo_ids]
 
 
+class _FakeTentativaRepository:
+    def __init__(self, por_tema: dict[uuid.UUID, tuple[int, int]] | None = None):
+        self.por_tema = por_tema or {}
+
+    def desempenho_por_tema(self, user_id: str) -> dict[uuid.UUID, tuple[int, int]]:
+        return dict(self.por_tema)
+
+    def ultimo_estudo_por_modulo(self, user_id: str) -> dict:
+        return {}
+
+
 class _FakeBackgroundTasks:
     """Records scheduled calls without running them - matches how a real
     `BackgroundTasks` behaves (it only runs after the response is sent), and
@@ -117,6 +132,7 @@ def _ctx(
     voto_repo: _FakeVotoRepository | None = None,
     xp_repo: _FakeXpRepository | None = None,
     progresso_repo: _FakeProgressoRepository | None = None,
+    tentativa_repo: _FakeTentativaRepository | None = None,
     background_tasks: _FakeBackgroundTasks | None = None,
 ) -> FerramentaContexto:
     return FerramentaContexto(
@@ -126,6 +142,7 @@ def _ctx(
         questionario_repo=None,
         xp_repo=xp_repo or _FakeXpRepository(),
         progresso_repo=progresso_repo or _FakeProgressoRepository(),
+        tentativa_repo=tentativa_repo or _FakeTentativaRepository(),
         voto_repo=voto_repo or _FakeVotoRepository(),
         ai_provider=None,
         pool_size=12,
@@ -197,11 +214,70 @@ def test_meu_desempenho_filtra_por_nome_inexistente():
     materia_repo.seed(Materia(id=uuid.uuid4(), nome="Física", owner_user_id=None))
     ctx = _ctx(materia_repo=materia_repo)
 
-    resultado = executar_ferramenta_aluno(
-        "meu_desempenho", {"materia_nome": "Biologia"}, ctx
-    )
+    resultado = executar_ferramenta_aluno("meu_desempenho", {"materia_nome": "Biologia"}, ctx)
 
     assert "Nenhuma matéria encontrada" in resultado
+
+
+def _materia_com_temas(nome: str, *titulos: str) -> Materia:
+    materia = Materia(id=uuid.uuid4(), nome=nome, owner_user_id=None)
+    materia.temas = [
+        Tema(id=uuid.uuid4(), materia_id=materia.id, titulo=t, ordem=i)
+        for i, t in enumerate(titulos)
+    ]
+    return materia
+
+
+def test_meu_desempenho_informa_nivel_por_tema_com_respostas():
+    materia = _materia_com_temas("Matemática", "Funções", "Geometria", "Estatística")
+    funcoes, geometria, _ = materia.temas
+    materia_repo = _FakeMateriaRepository()
+    materia_repo.seed(materia)
+    tentativa_repo = _FakeTentativaRepository({funcoes.id: (2, 10), geometria.id: (9, 10)})
+
+    resultado = executar_ferramenta_aluno(
+        "meu_desempenho", {}, _ctx(materia_repo=materia_repo, tentativa_repo=tentativa_repo)
+    )
+
+    assert "Funções baixo (20% de 10 respostas)" in resultado
+    assert "Geometria alto (90% de 10 respostas)" in resultado
+    assert "Estatística" not in resultado  # no answers there, nothing measured to report
+
+
+def test_meu_desempenho_explica_os_niveis_e_que_tema_ausente_nao_e_alto():
+    materia = _materia_com_temas("Matemática", "Funções")
+    materia_repo = _FakeMateriaRepository()
+    materia_repo.seed(materia)
+    tentativa_repo = _FakeTentativaRepository({materia.temas[0].id: (2, 10)})
+
+    resultado = executar_ferramenta_aluno(
+        "meu_desempenho", {}, _ctx(materia_repo=materia_repo, tentativa_repo=tentativa_repo)
+    )
+
+    # the model must be told the real cut-offs, not left to guess them
+    assert "baixo = menos de 50% de acerto" in resultado
+    assert "medio = de 50% até menos de 80%" in resultado
+    assert "alto = 80% ou mais" in resultado
+    assert "menos de 5 respostas" in resultado
+    assert "NÃO significa nível alto" in resultado
+
+
+def test_meu_desempenho_nao_inclui_legenda_sem_nenhum_nivel():
+    materia_repo = _FakeMateriaRepository()
+    materia_repo.seed(_materia_com_temas("Física", "Cinemática"))
+
+    resultado = executar_ferramenta_aluno("meu_desempenho", {}, _ctx(materia_repo=materia_repo))
+
+    assert "Níveis por tema" not in resultado
+
+
+def test_meu_desempenho_nao_inventa_nivel_para_tema_sem_respostas():
+    materia_repo = _FakeMateriaRepository()
+    materia_repo.seed(_materia_com_temas("Física", "Cinemática"))
+
+    resultado = executar_ferramenta_aluno("meu_desempenho", {}, _ctx(materia_repo=materia_repo))
+
+    assert "desempenho por tema" not in resultado
 
 
 # --- criar_minha_trilha ---
@@ -273,6 +349,46 @@ def test_criar_minha_trilha_reusa_materia_existente_do_mesmo_aluno():
     assert tema.materia_id == existente.id
 
 
+def test_criar_minha_trilha_respeita_o_limite_mensal_sem_derrubar_o_turno():
+    materia_repo = _FakeMateriaRepository()
+    for i in range(3):
+        materia_repo.seed(Materia(id=uuid.uuid4(), nome=f"Trilha {i}", owner_user_id="aluno-1"))
+    tema_repo = _FakeTemaRepository()
+    ctx = _ctx(
+        materia_repo=materia_repo,
+        tema_repo=tema_repo,
+        background_tasks=_FakeBackgroundTasks(),
+        user_id="aluno-1",
+    )
+
+    resultado = executar_ferramenta_aluno(
+        "criar_minha_trilha", {"nome_materia": "Nova", "titulo_tema": "Tema"}, ctx
+    )
+
+    assert resultado.startswith("Não criei a trilha")
+    assert len(materia_repo.materias) == 3 and not tema_repo.temas
+
+
+def test_criar_minha_trilha_em_materia_existente_nao_gasta_cota():
+    materia_repo = _FakeMateriaRepository()
+    for nome in ("A", "B", "Química"):
+        materia_repo.seed(Materia(id=uuid.uuid4(), nome=nome, owner_user_id="aluno-1"))
+    tema_repo = _FakeTemaRepository()
+    ctx = _ctx(
+        materia_repo=materia_repo,
+        tema_repo=tema_repo,
+        background_tasks=_FakeBackgroundTasks(),
+        user_id="aluno-1",
+    )
+
+    resultado = executar_ferramenta_aluno(
+        "criar_minha_trilha", {"nome_materia": "química", "titulo_tema": "Alcanos"}, ctx
+    )
+
+    assert "Criei a trilha" in resultado
+    assert len(tema_repo.temas) == 1
+
+
 def test_ferramenta_inexistente_retorna_erro_sem_lancar():
     resultado = executar_ferramenta_aluno("apagar_tudo", {}, _ctx())
     assert resultado.startswith("Erro:")
@@ -295,3 +411,112 @@ def test_erro_de_dominio_vira_string_erro_nao_excecao():
     )
 
     assert resultado.startswith("Erro:")
+
+
+# --- proximos_estudos ---
+
+
+def _materia_com_modulos(nome: str, *titulos_de_modulo: str) -> Materia:
+    from app.models.modulo import Modulo
+
+    materia = Materia(id=uuid.uuid4(), nome=nome, owner_user_id=None)
+    tema = Tema(id=uuid.uuid4(), materia_id=materia.id, titulo="Funções", ordem=0, status="pronto")
+    tema.modulos = [
+        Modulo(id=uuid.uuid4(), tema_id=tema.id, titulo=t, ordem=i, status="pronto")
+        for i, t in enumerate(titulos_de_modulo)
+    ]
+    materia.temas = [tema]
+    return materia
+
+
+def test_proximos_estudos_sem_conteudo_liberado():
+    resultado = executar_ferramenta_aluno("proximos_estudos", {}, _ctx())
+
+    assert "nenhum módulo liberado" in resultado.lower()
+
+
+def test_proximos_estudos_lista_numerada_com_o_motivo():
+    materia = _materia_com_modulos("Matemática", "Função afim")
+    materia_repo = _FakeMateriaRepository()
+    materia_repo.seed(materia)
+
+    resultado = executar_ferramenta_aluno("proximos_estudos", {}, _ctx(materia_repo=materia_repo))
+
+    assert resultado.startswith("1. Função afim (Matemática > Funções")
+    assert "ainda não estudou" in resultado
+    assert str(materia.temas[0].modulos[0].id) in resultado
+
+
+def test_proximos_estudos_respeita_o_limite_e_o_maximo():
+    """Módulos unlock one after the other, so a long list needs many matérias."""
+    materia_repo = _FakeMateriaRepository()
+    for i in range(30):
+        materia_repo.seed(_materia_com_modulos(f"Matéria {i}", "Módulo"))
+    ctx = _ctx(materia_repo=materia_repo)
+
+    def quantas(argumentos):
+        return len(executar_ferramenta_aluno("proximos_estudos", argumentos, ctx).splitlines())
+
+    assert quantas({}) == 5
+    assert quantas({"limite": 2}) == 2
+    assert quantas({"limite": 99}) == 20
+    assert quantas({"limite": "x"}) == 5
+
+
+def test_proximos_estudos_esta_declarada_para_os_dois_provedores():
+    from app.ai.adk_tools import construir_tools_aluno
+    from app.services.agent_tools_aluno import TOOLS
+
+    assert "proximos_estudos" in {t.nome for t in TOOLS}
+    assert "proximos_estudos" in {f.__name__ for f in construir_tools_aluno(_ctx())}
+
+
+# --- criar_minha_trilha: checagem de trilha duplicada ---
+
+
+def _veredito(status, *materias, nome="Época Napoleônica"):
+    candidatas = [SimpleNamespace(materia=m, similaridade=0.9) for m in materias]
+    return SimpleNamespace(status=status, nome_normalizado=nome, candidatas=candidatas)
+
+
+def test_criar_minha_trilha_parecida_nao_cria_e_apresenta_as_opcoes():
+    materia_repo = _FakeMateriaRepository()
+    existente = Materia(id=uuid.uuid4(), nome="Napoleão", owner_user_id="outro")
+    ctx = _ctx(materia_repo=materia_repo, background_tasks=_FakeBackgroundTasks())
+    ctx.verificar_trilha = lambda nome, descricao: _veredito("parecidas", existente)
+
+    resultado = executar_ferramenta_aluno(
+        "criar_minha_trilha", {"nome_materia": "napoleao", "titulo_tema": "Império"}, ctx
+    )
+
+    assert materia_repo.materias == {}
+    assert ctx.materia_criada_id is None
+    assert "Napoleão" in resultado and "forcar_criacao" in resultado
+
+
+def test_criar_minha_trilha_forcada_cria_mesmo_com_parecida_e_usa_titulo_corrigido():
+    materia_repo = _FakeMateriaRepository()
+    existente = Materia(id=uuid.uuid4(), nome="Napoleão", owner_user_id="outro")
+    ctx = _ctx(materia_repo=materia_repo, background_tasks=_FakeBackgroundTasks())
+    ctx.verificar_trilha = lambda nome, descricao: _veredito("igual", existente)
+
+    executar_ferramenta_aluno(
+        "criar_minha_trilha",
+        {"nome_materia": "epoca napoleao", "titulo_tema": "Império", "forcar_criacao": True},
+        ctx,
+    )
+
+    (materia,) = materia_repo.materias.values()
+    assert materia.nome == "Época Napoleônica"
+
+
+def test_criar_minha_trilha_nova_segue_normalmente():
+    materia_repo = _FakeMateriaRepository()
+    ctx = _ctx(materia_repo=materia_repo, background_tasks=_FakeBackgroundTasks())
+    ctx.verificar_trilha = lambda nome, descricao: _veredito("nova")
+
+    executar_ferramenta_aluno(
+        "criar_minha_trilha", {"nome_materia": "epoca napoleao", "titulo_tema": "Império"}, ctx
+    )
+
+    assert len(materia_repo.materias) == 1

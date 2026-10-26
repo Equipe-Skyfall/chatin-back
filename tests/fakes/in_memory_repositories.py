@@ -91,9 +91,19 @@ class InMemoryConversaRepository:
     def get_with_mensagens(self, conversa_id: uuid.UUID) -> Conversa | None:
         return self._conversas.get(conversa_id)
 
+    def get(self, conversa_id: uuid.UUID) -> Conversa | None:
+        return self._conversas.get(conversa_id)
+
     def add(self, conversa: Conversa) -> Conversa:
+        if conversa.id is None:
+            conversa.id = uuid.uuid4()
+        if conversa.mensagens is None:
+            conversa.mensagens = []
         self._conversas[conversa.id] = conversa
         return conversa
+
+    def refresh(self, conversa: Conversa) -> None:
+        pass
 
     def commit(self) -> None:
         if self.falhar_proximo_commit:
@@ -136,6 +146,13 @@ class InMemoryQuestionarioRepository:
         self.gabaritos: dict[uuid.UUID, str] = {}
         self._questionarios_by_modulo: dict[uuid.UUID, Questionario] = {}
         self._pool_por_tema: dict[uuid.UUID, list[uuid.UUID]] = {}
+        self._tema_por_questionario: dict[uuid.UUID, uuid.UUID] = {}
+
+    def seed_tema_do_questionario(self, questionario_id: uuid.UUID, tema_id: uuid.UUID) -> None:
+        self._tema_por_questionario[questionario_id] = tema_id
+
+    def get_tema_id(self, questionario_id: uuid.UUID) -> uuid.UUID | None:
+        return self._tema_por_questionario.get(questionario_id)
 
     def seed_pool_tema(self, tema_id: uuid.UUID, questao_ids: list[uuid.UUID]) -> None:
         """Test double shortcut: register a tema's review-quiz pool directly,
@@ -199,6 +216,28 @@ class InMemoryQuestionarioRepository:
     def add_gabarito(self, gabarito) -> None:
         self.gabaritos[gabarito.questao_id] = gabarito.resposta_correta
 
+    def get_questao_by_id(self, questao_id: uuid.UUID) -> Questao | None:
+        return self.questoes.get(questao_id)
+
+    def proxima_ordem(self, questionario_id: uuid.UUID) -> int:
+        ordens = [q.ordem for q in self.questoes.values() if q.questionario_id == questionario_id]
+        return max(ordens) + 1 if ordens else 0
+
+    def delete(self, entity) -> None:
+        """A questão (its gabarito goes with it) or a whole questionário (and
+        everything in it), mirroring the real cascade."""
+        if isinstance(entity, Questao):
+            self.questoes.pop(entity.id, None)
+            self.gabaritos.pop(entity.id, None)
+            return
+        self._questionarios_by_modulo.pop(entity.modulo_id, None)
+        for questao_id in [q.id for q in self.questoes.values() if q.questionario_id == entity.id]:
+            self.questoes.pop(questao_id)
+            self.gabaritos.pop(questao_id, None)
+
+    def rollback(self) -> None:
+        pass
+
     def flush(self) -> None:
         pass
 
@@ -213,6 +252,9 @@ class InMemoryTentativaRepository:
         self._pendentes: list[Tentativa] = []
         self._questoes_por_tentativa: dict[uuid.UUID, set[uuid.UUID]] = {}
         self.respostas: list[RespostaTentativa] = []
+        # Test control: which tema each questão belongs to (the real query
+        # derives it through questionário -> módulo).
+        self.tema_por_questao: dict[uuid.UUID, uuid.UUID] = {}
         # Test control: makes the *next* `flush()` raise `IntegrityError`
         # (and discard whatever was pending, mirroring a real rollback) -
         # like a real race against the partial unique index would. See
@@ -273,6 +315,20 @@ class InMemoryTentativaRepository:
         ]
         return sum(pontuacoes) / len(pontuacoes) if pontuacoes else None
 
+    def desempenho_por_tema(self, user_id: str) -> dict[uuid.UUID, tuple[int, int]]:
+        concluidas = {
+            t.id
+            for t in self.tentativas.values()
+            if t.user_id == user_id and t.status == "concluida"
+        }
+        resultado: dict[uuid.UUID, tuple[int, int]] = {}
+        for r in self.respostas:
+            tema_id = self.tema_por_questao.get(r.questao_id)
+            if r.tentativa_id in concluidas and tema_id is not None:
+                corretas, total = resultado.get(tema_id, (0, 0))
+                resultado[tema_id] = (corretas + int(r.correta), total + 1)
+        return resultado
+
     def flush(self) -> None:
         if self.falhar_proximo_flush:
             self.falhar_proximo_flush = False
@@ -324,6 +380,43 @@ class InMemoryProgressoRepository:
         pass
 
 
+class InMemoryLicaoRepository:
+    def __init__(self):
+        self.iniciadas: set[tuple[str, uuid.UUID]] = set()
+
+    def existe(self, user_id: str, modulo_id: uuid.UUID) -> bool:
+        return (user_id, modulo_id) in self.iniciadas
+
+    def modulos_iniciados(self, user_id: str, modulo_ids: list[uuid.UUID]) -> set[uuid.UUID]:
+        return {mid for (uid, mid) in self.iniciadas if uid == user_id and mid in modulo_ids}
+
+    def marcar(self, user_id: str, modulo_id: uuid.UUID) -> None:
+        self.iniciadas.add((user_id, modulo_id))
+
+    def commit(self) -> None:
+        pass
+
+
+class InMemoryTrilhaEstudandoRepository:
+    def __init__(self):
+        self.adocoes: set[tuple[str, uuid.UUID]] = set()
+
+    def existe(self, user_id: str, materia_id: uuid.UUID) -> bool:
+        return (user_id, materia_id) in self.adocoes
+
+    def ids_do_usuario(self, user_id: str) -> set[uuid.UUID]:
+        return {mid for (uid, mid) in self.adocoes if uid == user_id}
+
+    def adicionar(self, user_id: str, materia_id: uuid.UUID) -> None:
+        self.adocoes.add((user_id, materia_id))
+
+    def remover(self, user_id: str, materia_id: uuid.UUID) -> None:
+        self.adocoes.discard((user_id, materia_id))
+
+    def commit(self) -> None:
+        pass
+
+
 class InMemoryXpRepository:
     def __init__(self):
         self.eventos: list = []
@@ -358,17 +451,13 @@ class InMemoryResumoEstudoRepository:
     def get(self, entity_id: uuid.UUID) -> ResumoEstudo | None:
         return self.resumos.get(entity_id)
 
-    def get_by_user_and_modulo(
-        self, user_id: str, modulo_id: uuid.UUID
-    ) -> ResumoEstudo | None:
+    def get_by_user_and_modulo(self, user_id: str, modulo_id: uuid.UUID) -> ResumoEstudo | None:
         for resumo in self.resumos.values():
             if resumo.user_id == user_id and resumo.modulo_id == modulo_id:
                 return resumo
         return None
 
-    def get_by_user_and_conversa(
-        self, user_id: str, conversa_id: uuid.UUID
-    ) -> ResumoEstudo | None:
+    def get_by_user_and_conversa(self, user_id: str, conversa_id: uuid.UUID) -> ResumoEstudo | None:
         for resumo in self.resumos.values():
             if (
                 resumo.user_id == user_id

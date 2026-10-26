@@ -19,12 +19,20 @@ model. A closure has no such leak: `ctx` is a free variable, never a
 parameter, so it's structurally impossible for the model to see or set it.
 """
 
+import asyncio
+import logging
 from collections.abc import Callable
 
 from app.ai.adk_schemas import AlternativaSchema, Letra
 from app.ai.schemas import FerramentaContexto
 from app.services.agent_tools import executar_ferramenta
 from app.services.agent_tools_aluno import executar_ferramenta_aluno
+
+logger = logging.getLogger(__name__)
+
+# Each web search is an extra grounded model call (cost, latency) - cap it per
+# student turn; the agent's own `max_llm_calls` is the hard ceiling above this.
+MAX_BUSCAS_WEB_POR_TURNO = 2
 
 
 def construir_tools(ctx: FerramentaContexto) -> list[Callable]:
@@ -201,9 +209,7 @@ def construir_tools(ctx: FerramentaContexto) -> list[Callable]:
             "deletar_modulo", {"tema_id": tema_id, "modulo_id": modulo_id}, ctx
         )
 
-    def regenerar_modulo(
-        tema_id: str, modulo_id: str, instrucoes: str | None = None
-    ) -> str:
+    def regenerar_modulo(tema_id: str, modulo_id: str, instrucoes: str | None = None) -> str:
         """Regenera o conteúdo e o questionário de um módulo (nova chamada
         de IA), descartando a versão atual. Use `instrucoes` para guiar a
         regeneração com o pedido específico do usuário (ex.: 'deixe mais
@@ -270,9 +276,7 @@ def construir_tools(ctx: FerramentaContexto) -> list[Callable]:
                 "questao_id": questao_id,
                 "enunciado": enunciado,
                 "alternativas": (
-                    [a.model_dump() for a in alternativas]
-                    if alternativas is not None
-                    else None
+                    [a.model_dump() for a in alternativas] if alternativas is not None else None
                 ),
                 "explicacao": explicacao,
                 "resposta_correta": resposta_correta,
@@ -331,12 +335,25 @@ def construir_tools_aluno(ctx: FerramentaContexto) -> list[Callable]:
         Args:
             materia_nome: Opcional - filtra por uma matéria específica.
         """
-        return executar_ferramenta_aluno(
-            "meu_desempenho", {"materia_nome": materia_nome}, ctx
-        )
+        return executar_ferramenta_aluno("meu_desempenho", {"materia_nome": materia_nome}, ctx)
+
+    def proximos_estudos(limite: int = 5) -> str:
+        """Lista os módulos que o aluno deve estudar em seguida, do mais
+        urgente para o menos, com o motivo de cada um: tema com baixo
+        desempenho, conteúdo ainda não estudado ou revisão que já está na
+        hora de repetir. Use quando o aluno perguntar o que estudar, por onde
+        continuar ou o que revisar.
+
+        Args:
+            limite: Quantos módulos listar (padrão 5, máximo 20).
+        """
+        return executar_ferramenta_aluno("proximos_estudos", {"limite": limite}, ctx)
 
     def criar_minha_trilha(
-        nome_materia: str, titulo_tema: str, descricao_tema: str | None = None
+        nome_materia: str,
+        titulo_tema: str,
+        descricao_tema: str | None = None,
+        forcar_criacao: bool = False,
     ) -> str:
         """Cria uma trilha própria do aluno (matéria + tema) quando
         buscar_conteudo não encontrou nada satisfatório sobre o assunto. A
@@ -348,6 +365,8 @@ def construir_tools_aluno(ctx: FerramentaContexto) -> list[Callable]:
             nome_materia: Nome da matéria (ex.: 'Química Orgânica').
             titulo_tema: Título do primeiro tema dessa trilha.
             descricao_tema: Descrição opcional do foco desse tema.
+            forcar_criacao: Só true depois que o aluno, avisado de trilhas
+                iguais/parecidas, confirmou que quer criar mesmo assim.
         """
         return executar_ferramenta_aluno(
             "criar_minha_trilha",
@@ -355,8 +374,42 @@ def construir_tools_aluno(ctx: FerramentaContexto) -> list[Callable]:
                 "nome_materia": nome_materia,
                 "titulo_tema": titulo_tema,
                 "descricao_tema": descricao_tema,
+                "forcar_criacao": forcar_criacao,
             },
             ctx,
         )
 
-    return [buscar_conteudo, meu_desempenho, criar_minha_trilha]
+    async def buscar_fontes_web(consulta: str) -> str:
+        """Pesquisa na web sobre um assunto de estudo e devolve um resumo
+        embasado em páginas reais. Os links ficam disponíveis para o aluno
+        automaticamente - use o resumo para fundamentar a resposta.
+
+        Args:
+            consulta: O que pesquisar (ex.: 'causas da Revolução Francesa').
+        """
+        # Async because the ADK runs this tool inside its own running event
+        # loop, where the provider's sync `asyncio.run(...)` cannot be called -
+        # a worker thread gets its own loop (and keeps this one unblocked).
+        if len(ctx.fontes_web_consultas) >= MAX_BUSCAS_WEB_POR_TURNO:
+            return "Limite de buscas desta resposta atingido - responda com o que já encontrou."
+        ctx.fontes_web_consultas.append(consulta)
+        try:
+            resultado = await asyncio.to_thread(ctx.ai_provider.pesquisar_web, consulta)
+        except Exception:  # noqa: BLE001 - RNF6: a busca nunca derruba a resposta
+            logger.warning(
+                "Falha na busca web para %r; respondendo sem fontes.", consulta, exc_info=True
+            )
+            return "A busca na web está indisponível agora - responda sem fontes externas."
+        ja_vistas = {f.url for f in ctx.fontes_web}
+        ctx.fontes_web.extend(f for f in resultado.fontes if f.url not in ja_vistas)
+        if not resultado.resumo:
+            return "Nenhum resultado encontrado - responda sem fontes externas."
+        return resultado.resumo
+
+    return [
+        buscar_conteudo,
+        meu_desempenho,
+        proximos_estudos,
+        criar_minha_trilha,
+        buscar_fontes_web,
+    ]

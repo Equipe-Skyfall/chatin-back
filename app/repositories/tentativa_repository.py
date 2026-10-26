@@ -1,11 +1,14 @@
 import uuid
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import selectinload
 
 from app.db.session import DbSession
+from app.models.modulo import Modulo
+from app.models.questao import Questao
 from app.models.questionario import Questionario
 from app.models.tentativa import (
     STATUS_CONCLUIDA,
@@ -72,6 +75,40 @@ class TentativaRepository(SqlAlchemyRepository[Tentativa]):
         )
         resultado = self.db.execute(stmt).scalar_one()
         return float(resultado) if resultado is not None else None
+
+    def desempenho_por_tema(self, user_id: str) -> dict[uuid.UUID, tuple[int, int]]:
+        """(acertos, total de respostas) por tema, somando toda resposta de
+        tentativa concluída do aluno. O tema vem da própria questão (via
+        questionário -> módulo), então quizzes de módulo e revisões de tema
+        contam igual - ver `dificuldade_service.classificar_desempenho`."""
+        stmt = (
+            select(
+                Modulo.tema_id,
+                func.count().label("total"),
+                func.sum(case((RespostaTentativa.correta.is_(True), 1), else_=0)).label("corretas"),
+            )
+            .select_from(RespostaTentativa)
+            .join(Tentativa, Tentativa.id == RespostaTentativa.tentativa_id)
+            .join(Questao, Questao.id == RespostaTentativa.questao_id)
+            .join(Questionario, Questionario.id == Questao.questionario_id)
+            .join(Modulo, Modulo.id == Questionario.modulo_id)
+            .where(Tentativa.user_id == user_id, Tentativa.status == STATUS_CONCLUIDA)
+            .group_by(Modulo.tema_id)
+        )
+        return {row.tema_id: (int(row.corretas), row.total) for row in self.db.execute(stmt)}
+
+    def ultimo_estudo_por_modulo(self, user_id: str) -> dict[uuid.UUID, datetime]:
+        """When the student last finished a quiz on each módulo (practice quizzes
+        count too) - the "how long since they studied it" input of
+        `recomendacao_service`. A tema-scoped review has no single módulo, so it
+        is not counted here."""
+        stmt = (
+            select(Questionario.modulo_id, func.max(Tentativa.created_at))
+            .join(Questionario, Questionario.id == Tentativa.questionario_id)
+            .where(Tentativa.user_id == user_id, Tentativa.status == STATUS_CONCLUIDA)
+            .group_by(Questionario.modulo_id)
+        )
+        return {modulo_id: ultimo for modulo_id, ultimo in self.db.execute(stmt)}
 
     def list_by_user(self, user_id: str) -> list[Tentativa]:
         """The student's own quiz-attempt history, most recent first. Eager-loads

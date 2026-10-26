@@ -497,3 +497,86 @@ def test_iniciar_tentativa_tema_mistura_pools_de_varios_modulos(questionario_rep
     assert tentativa.questionario_id is None
     assert len(questoes) == 5
     assert {q.id for q in questoes} <= set(pool_tema)
+
+
+# --- per-tema performance (US-8) -------------------------------------------
+
+
+def _responder_todas(tentativa, questoes, resposta, questionario_repo, tentativa_repo):
+    return grading_service.responder_tentativa(
+        tentativa,
+        [RespostaInput(questao_id=q.id, resposta_escolhida=resposta) for q in questoes],
+        questionario_repo,
+        tentativa_repo,
+    )
+
+
+def test_desempenho_por_tema_soma_acertos_e_erros_de_tentativas_concluidas(
+    questionario_repo, tentativa_repo
+):
+    user_id = "user-1"
+    tema_id = uuid.uuid4()
+    questionario, questoes, _ = _seed_pool(questionario_repo, num_questoes=6, resposta_correta="A")
+    tentativa_repo.tema_por_questao.update({q.id: tema_id for q in questoes})
+
+    tentativa, qs = grading_service.iniciar_tentativa(
+        questionario.id, user_id, 4, questionario_repo, tentativa_repo
+    )
+    # not completed yet - must not count
+    assert tentativa_repo.desempenho_por_tema(user_id) == {}
+
+    # 4 questions, all wrong ("B" vs gabarito "A")
+    _responder_todas(tentativa, qs, "B", questionario_repo, tentativa_repo)
+    assert tentativa_repo.desempenho_por_tema(user_id) == {tema_id: (0, 4)}
+
+    tentativa, qs = grading_service.iniciar_tentativa(
+        questionario.id, user_id, 4, questionario_repo, tentativa_repo
+    )
+    _responder_todas(tentativa, qs, "A", questionario_repo, tentativa_repo)
+    assert tentativa_repo.desempenho_por_tema(user_id) == {tema_id: (4, 8)}
+
+
+def test_desempenho_por_tema_e_isolado_por_aluno(questionario_repo, tentativa_repo):
+    tema_id = uuid.uuid4()
+    questionario, questoes, _ = _seed_pool(questionario_repo, num_questoes=6)
+    tentativa_repo.tema_por_questao.update({q.id: tema_id for q in questoes})
+
+    tentativa, qs = grading_service.iniciar_tentativa(
+        questionario.id, "aluno-a", 3, questionario_repo, tentativa_repo
+    )
+    _responder_todas(tentativa, qs, "A", questionario_repo, tentativa_repo)
+
+    assert tentativa_repo.desempenho_por_tema("aluno-a") == {tema_id: (3, 3)}
+    assert tentativa_repo.desempenho_por_tema("aluno-b") == {}
+
+
+def test_selecao_usa_nivel_do_tema_quando_ha_dados_suficientes(
+    questionario_repo, tentativa_repo, monkeypatch
+):
+    user_id = "user-1"
+    tema_id = uuid.uuid4()
+    questionario, questoes, _ = _seed_pool(questionario_repo, num_questoes=12)
+    questionario_repo.seed_tema_do_questionario(questionario.id, tema_id)
+    tentativa_repo.tema_por_questao.update({q.id: tema_id for q in questoes})
+
+    # Strong globally (100%) but struggling in this tema: seed answers in the
+    # tema through a completed attempt, then check which level drives sampling.
+    tentativa, qs = grading_service.iniciar_tentativa(
+        questionario.id, user_id, 6, questionario_repo, tentativa_repo
+    )
+    _responder_todas(tentativa, qs, "B", questionario_repo, tentativa_repo)  # 0/6 in the tema
+
+    niveis = []
+    original = grading_service.dificuldade_service.nivel_para_selecao
+
+    def espiar(desempenho_tema, media_global):
+        nivel = original(desempenho_tema, media_global)
+        niveis.append((desempenho_tema, nivel))
+        return nivel
+
+    monkeypatch.setattr(grading_service.dificuldade_service, "nivel_para_selecao", espiar)
+    grading_service.iniciar_tentativa(
+        questionario.id, user_id, 6, questionario_repo, tentativa_repo
+    )
+
+    assert niveis == [((0, 6), "com_dificuldade")]

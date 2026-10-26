@@ -3,7 +3,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.ai.schemas import FerramentaContexto
+from app.ai.prompts import LICAO_MARCADOR
+from app.ai.schemas import FerramentaContexto, MensagemHistorico
 from app.core.exceptions import ConversaOcupadaException, ProvedorIAIndisponivelException
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, TIPO_ALUNO, Conversa, Mensagem
 from app.services import chat_aluno_service
@@ -36,6 +37,7 @@ def _ctx(conversa_id: uuid.UUID) -> FerramentaContexto:
         modulo_repo=None,
         questionario_repo=None,
         xp_repo=None,
+        tentativa_repo=None,
         progresso_repo=None,
         voto_repo=None,
         ai_provider=None,
@@ -181,6 +183,55 @@ def test_colisao_de_ordem_vira_conversa_ocupada_sem_chamar_a_ia(fake_ai_provider
     assert conversa.mensagens == []
 
 
+# --- resposta_pronta (chat shortcut) ---
+
+
+def test_enviar_mensagem_com_resposta_pronta_nao_chama_o_agente(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa()
+    conversa_repo.add(conversa)
+
+    resposta = chat_aluno_service.enviar_mensagem(
+        conversa,
+        "como estou indo?",
+        conversa_repo,
+        InMemoryModuloRepository(),
+        fake_ai_provider,
+        _ctx(conversa.id),
+        janela=20,
+        resposta_pronta="Você tem 120 XP.",
+    )
+
+    assert resposta == "Você tem 120 XP."
+    assert fake_ai_provider.conversar_com_agente_aluno_calls == 0
+    assert [(m.papel, m.conteudo) for m in conversa.mensagens] == [
+        (PAPEL_USUARIO, "como estou indo?"),
+        (PAPEL_ASSISTENTE, "Você tem 120 XP."),
+    ]
+    assert fake_ai_provider.trocas_registradas == [
+        (conversa.id, "como estou indo?", "Você tem 120 XP.")
+    ]
+
+
+def test_enviar_mensagem_sem_resposta_pronta_continua_usando_o_agente(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa()
+    conversa_repo.add(conversa)
+
+    chat_aluno_service.enviar_mensagem(
+        conversa,
+        "explique a revolução francesa",
+        conversa_repo,
+        InMemoryModuloRepository(),
+        fake_ai_provider,
+        _ctx(conversa.id),
+        janela=20,
+    )
+
+    assert fake_ai_provider.conversar_com_agente_aluno_calls == 1
+    assert fake_ai_provider.trocas_registradas == []
+
+
 # --- obter_ou_gerar_resumo ---
 
 
@@ -232,3 +283,115 @@ def test_obter_ou_gerar_resumo_ia_falha_mantem_resumo_anterior(fake_ai_provider,
     resumo = chat_aluno_service.obter_ou_gerar_resumo(conversa, conversa_repo, fake_ai_provider)
 
     assert resumo == "Resumo antigo."
+
+
+def _licao_setup():
+    modulo = ModuloBuilder().com_titulo("Causas").build()
+    modulo_repo = InMemoryModuloRepository()
+    modulo_repo.seed(modulo)
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(modulo_id=modulo.id)
+    conversa_repo.add(conversa)
+    return modulo, modulo_repo, conversa_repo, conversa
+
+
+def test_enviar_licao_salva_so_a_resposta_e_marca_start_lesson(fake_ai_provider, licao_repo):
+    modulo, modulo_repo, conversa_repo, conversa = _licao_setup()
+
+    resposta = chat_aluno_service.enviar_licao(
+        conversa,
+        "user-1",
+        conversa_repo,
+        modulo_repo,
+        licao_repo,
+        fake_ai_provider,
+        _ctx(conversa.id),
+    )
+
+    assert resposta is not None
+    assert [(m.papel, m.conteudo) for m in conversa.mensagens] == [(PAPEL_ASSISTENTE, resposta)]
+    assert licao_repo.existe("user-1", modulo.id)
+    pedido = fake_ai_provider.historicos_recebidos[0][-1]
+    assert pedido.conteudo.startswith(LICAO_MARCADOR)
+    assert fake_ai_provider.conteudos_modulo_recebidos == [modulo.conteudo]
+
+
+def test_enviar_licao_nao_repete_quando_ja_enviada(fake_ai_provider, licao_repo):
+    modulo, modulo_repo, conversa_repo, conversa = _licao_setup()
+    licao_repo.marcar("user-1", modulo.id)
+
+    resposta = chat_aluno_service.enviar_licao(
+        conversa,
+        "user-1",
+        conversa_repo,
+        modulo_repo,
+        licao_repo,
+        fake_ai_provider,
+        _ctx(conversa.id),
+    )
+
+    assert resposta is None
+    assert fake_ai_provider.conversar_com_agente_aluno_calls == 0
+    assert conversa.mensagens == []
+
+
+def test_enviar_licao_falha_da_ia_nao_marca_start_lesson(fake_ai_provider, licao_repo):
+    modulo, modulo_repo, conversa_repo, conversa = _licao_setup()
+    fake_ai_provider.falhar_conversar_com_agente_aluno = True
+
+    with pytest.raises(RuntimeError):
+        chat_aluno_service.enviar_licao(
+            conversa,
+            "user-1",
+            conversa_repo,
+            modulo_repo,
+            licao_repo,
+            fake_ai_provider,
+            _ctx(conversa.id),
+        )
+
+    assert not licao_repo.existe("user-1", modulo.id)
+    assert conversa.mensagens == []
+
+
+def test_historico_oculta_o_turno_sintetico_da_licao():
+    historico = [
+        MensagemHistorico(
+            id=uuid.uuid4(),
+            papel=PAPEL_USUARIO,
+            conteudo=f"{LICAO_MARCADOR} dê a aula",
+            chamadas_ferramentas=None,
+            created_at=datetime.now(UTC),
+        ),
+        MensagemHistorico(
+            id=uuid.uuid4(),
+            papel=PAPEL_ASSISTENTE,
+            conteudo="Aula completa. Alguma dúvida?",
+            chamadas_ferramentas=None,
+            created_at=datetime.now(UTC),
+        ),
+    ]
+
+    resultado = chat_aluno_service.anexar_fontes_ao_historico(historico, [])
+
+    assert [m.papel for m in resultado] == [PAPEL_ASSISTENTE]
+
+
+def test_enviar_licao_com_ia_fora_do_ar_marca_a_ia_indisponivel(fake_ai_provider, licao_repo):
+    from app.ai.disponibilidade import status_ia
+    from app.core.exceptions import ProvedorIAIndisponivelException
+
+    class _IAFora(type(fake_ai_provider)):
+        def conversar_com_agente_aluno(self, *args, **kwargs):
+            raise ProvedorIAIndisponivelException("503")
+
+    modulo, modulo_repo, conversa_repo, conversa = _licao_setup()
+    assert status_ia.disponivel()
+
+    with pytest.raises(ProvedorIAIndisponivelException):
+        chat_aluno_service.enviar_licao(
+            conversa, "user-1", conversa_repo, modulo_repo, licao_repo, _IAFora(), _ctx(conversa.id)
+        )
+
+    assert not status_ia.disponivel()
+    assert not licao_repo.existe("user-1", modulo.id)

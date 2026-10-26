@@ -4,12 +4,21 @@ Routers and services raise these instead of building `HTTPException` by hand.
 `core.exception_handlers` maps the base class to an HTTP response in one place.
 """
 
+from datetime import datetime
 from uuid import UUID
+
+from app.core.falha_ia import TipoFalhaIA, classificar_falha
 
 
 class AppException(Exception):
     status_code: int = 500
     detail: str = "Erro interno."
+    # Stable, machine-readable identifier the frontend can branch on (the
+    # `detail` text is for people and may change). `None` when there is nothing
+    # specific to branch on.
+    code: str | None = None
+    # Extra fields merged into the JSON body next to `detail`/`code`.
+    extra: dict | None = None
 
     def __init__(self, detail: str | None = None):
         if detail is not None:
@@ -120,6 +129,29 @@ class OrdemDuplicadaException(AppException):
         )
 
 
+class QuestionarioJaExisteException(AppException):
+    status_code = 409
+    detail = (
+        "Este módulo já possui um questionário - adicione questões a ele "
+        "ou remova-o antes de criar outro."
+    )
+
+
+class QuestionarioSemQuestoesException(AppException):
+    status_code = 409
+    detail = (
+        "Um questionário precisa ter ao menos uma questão - para removê-las todas, "
+        "remova o questionário."
+    )
+
+
+class LimiteQuestoesExcedidoException(AppException):
+    status_code = 400
+
+    def __init__(self, limite: int):
+        super().__init__(f"Um questionário pode ter no máximo {limite} questões.")
+
+
 class ConversaOcupadaException(AppException):
     status_code = 409
     detail = "Já existe uma mensagem sendo processada nesta conversa - aguarde a resposta anterior."
@@ -143,6 +175,16 @@ class ModuloBloqueadoException(AppException):
     detail = "Este módulo ainda está bloqueado."
 
 
+class LicaoNaoIniciadaException(AppException):
+    status_code = 403
+    detail = "Comece a lição deste módulo no chat antes de fazer o questionário."
+    code = "LICAO_NAO_INICIADA"
+
+    def __init__(self, modulo_id: UUID):
+        super().__init__()
+        self.extra = {"modulo_id": str(modulo_id)}
+
+
 class VotoEmConteudoGlobalException(AppException):
     status_code = 400
     detail = (
@@ -163,8 +205,35 @@ class NaoAutenticadoException(AppException):
 
 
 class ProvedorIAIndisponivelException(AppException):
-    status_code = 502
-    detail = "O provedor de IA falhou ao gerar o conteúdo."
+    """The AI provider failed. What the student sees (`detail`) is always a
+    friendly sentence; the technical reason passed to the constructor stays in
+    `motivo` for the logs and is never sent to the client. Status and `code`
+    depend on what went wrong, read from the original error (`__cause__`)."""
+
+    def __init__(self, motivo: str | None = None):
+        self.motivo = motivo
+        Exception.__init__(self, motivo or self.detail)
+
+    @property
+    def tipo(self) -> TipoFalhaIA:
+        return classificar_falha(self.__cause__)
+
+    @property
+    def status_code(self) -> int:  # type: ignore[override]
+        return 504 if self.tipo is TipoFalhaIA.TIMEOUT else 503
+
+    @property
+    def code(self) -> str:  # type: ignore[override]
+        return "ia_timeout" if self.tipo is TipoFalhaIA.TIMEOUT else "ia_indisponivel"
+
+    @property
+    def detail(self) -> str:  # type: ignore[override]
+        if self.tipo is TipoFalhaIA.TIMEOUT:
+            return "O assistente de IA demorou demais para responder. Tente novamente em instantes."
+        return (
+            "O assistente de IA está indisponível no momento. "
+            "O restante da plataforma continua funcionando; tente novamente em instantes."
+        )
 
 
 class GeracaoConteudoFalhouException(AppException):
@@ -177,3 +246,20 @@ class GeracaoConteudoFalhouException(AppException):
 class AgenteLimiteExcedidoException(AppException):
     status_code = 502
     detail = "O agente excedeu o número máximo de chamadas de ferramentas para esta mensagem."
+
+
+class LimiteTrilhasMensalExcedidoException(AppException):
+    status_code = 403
+    code = "LIMITE_TRILHAS_MENSAL"
+
+    def __init__(self, limite: int, reseta_em: datetime):
+        super().__init__(
+            f"Você já criou {limite} trilhas neste mês. O limite renova em "
+            f"{reseta_em.strftime('%d/%m/%Y')}."
+        )
+        self.extra = {"limite": limite, "usadas": limite, "reseta_em": reseta_em.isoformat()}
+
+
+class NaoPodePararDeEstudarException(AppException):
+    status_code = 409
+    detail = "Currículo verificado e trilhas criadas por você não saem da sua lista de estudos."

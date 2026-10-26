@@ -48,24 +48,26 @@ from datetime import UTC, datetime
 
 from google.adk.agents import LlmAgent, RunConfig
 from google.adk.agents.invocation_context import LlmCallsLimitExceededError
+from google.adk.events import Event
 from google.adk.runners import InMemoryRunner, Runner
 from google.adk.sessions import DatabaseSessionService
 from google.adk.tools import google_search
 from google.genai import types as genai_types
 from pydantic import ValidationError
-from tenacity import retry, stop_after_attempt, wait_exponential
 
+from app.ai import consumo, resiliencia
 from app.ai.adk_schemas import PlanoModulosSchema, QuestionarioSchema, ResumoEstudoSchema
 from app.ai.adk_tools import construir_tools, construir_tools_aluno
 from app.ai.base import AIProvider
 from app.ai.gemini_provider import GeminiProvider
-from app.ai.grounding import fontes_a_partir_do_grounding
+from app.ai.grounding import fontes_a_partir_do_grounding, fontes_web_a_partir_do_grounding
 from app.ai.prompts import (
     AGENTE_ADMIN_SYSTEM_INSTRUCTION,
     prompt_agente_aluno_system,
     prompt_buscar_fontes,
     prompt_gerar_conteudo_modulo,
     prompt_gerar_questionario,
+    prompt_pesquisa_web,
     prompt_planejar_modulos,
     prompt_resumo_estudo,
 )
@@ -83,6 +85,7 @@ from app.ai.schemas import (
     PlanoModulos,
     QuestaoGerada,
     QuestionarioGerado,
+    ResultadoBuscaWeb,
     ResumoEstudoGerado,
 )
 from app.config import Settings
@@ -90,11 +93,10 @@ from app.core.exceptions import AgenteLimiteExcedidoException, ProvedorIAIndispo
 
 logger = logging.getLogger(__name__)
 
-_retry_transient = retry(
-    stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8), reraise=True
-)
+_retry_transient = resiliencia.retry_transiente(tentativas=3, espera_max=8)
 
 _APP_NAME = "chatin"
+_AGENTE_ALUNO_NOME = "agente_aluno_agent"
 _USER_ID = "system"  # sessions are keyed by conversa_id (already globally
 # unique) - a constant user_id is enough, ADK's per-user semantics aren't
 # needed here.
@@ -107,34 +109,54 @@ class AdkProvider(AIProvider):
         # here so `AI_PROVIDER=adk` covers 100% of `AIProvider` from Fase 1 on.
         self._gemini = GeminiProvider(settings)
 
+        # Bounds every ADK agent's model call (see GEMINI_TIMEOUT_SECONDS).
+        self._config_http = genai_types.GenerateContentConfig(
+            http_options=resiliencia.opcoes_http(settings)
+        )
+
         self._questionario_agent = LlmAgent(
             name="questionario_agent",
             model=settings.GEMINI_MODEL_QUESTIONARIO,
             instruction="Você gera questionários de múltipla escolha no estilo ENEM.",
             output_schema=QuestionarioSchema,
+            generate_content_config=self._config_http,
         )
         self._planejamento_agent = LlmAgent(
             name="planejamento_agent",
             model=settings.GEMINI_MODEL_CONTEUDO,
             instruction="Você planeja trilhas de estudo dividindo temas em módulos.",
             output_schema=PlanoModulosSchema,
+            generate_content_config=self._config_http,
         )
         self._conteudo_agent = LlmAgent(
             name="conteudo_agent",
             model=settings.GEMINI_MODEL_CONTEUDO,
             instruction="Você é um professor gerando material didático.",
+            generate_content_config=self._config_http,
         )
         self._fontes_agent = LlmAgent(
             name="fontes_agent",
             model=settings.GEMINI_MODEL_SEARCH,
             instruction="Você é um assistente de pesquisa educacional.",
             tools=[google_search],
+            generate_content_config=self._config_http,
+        )
+        # `google_search` can't share an agent with function tools, so the
+        # student chat reaches it through `pesquisar_web` (called from the
+        # `buscar_fontes_web` tool) rather than on the chat agent itself.
+        self._pesquisa_web_agent = LlmAgent(
+            name="pesquisa_web_agent",
+            model=settings.GEMINI_MODEL_SEARCH,
+            instruction="Você é um assistente de pesquisa educacional para estudantes do ENEM.",
+            tools=[google_search],
+            generate_content_config=self._config_http,
         )
         self._resumo_estudo_agent = LlmAgent(
             name="resumo_estudo_agent",
             model=settings.GEMINI_MODEL_PROFESSOR,
             instruction="Você monta resumos de estudos preparatórios para alunos do ENEM.",
             output_schema=ResumoEstudoSchema,
+            generate_content_config=self._config_http,
         )
         # The admin agent's own session store - persistent, unlike the
         # throwaway sessions the other methods above use, since its history
@@ -189,6 +211,7 @@ class AdkProvider(AIProvider):
                     raise ProvedorIAIndisponivelException(
                         f"Falha no agente ADK '{agent.name}': {event.error_message}"
                     )
+                consumo.acumular(event.usage_metadata, event.model_version)
                 if event.grounding_metadata is not None:
                     grounding = event.grounding_metadata
                 if event.is_final_response() and event.content and event.content.parts:
@@ -305,6 +328,21 @@ class AdkProvider(AIProvider):
             raise ProvedorIAIndisponivelException(f"Falha ao buscar fontes: {exc}") from exc
         return self._parse_fontes(texto, grounding, tema_titulo)
 
+    def pesquisar_web(self, consulta: str) -> ResultadoBuscaWeb:
+        try:
+            with consumo.medir("pesquisar_web"):
+                texto, grounding = self._run_single_turn_full(
+                    self._pesquisa_web_agent, prompt_pesquisa_web(consulta)
+                )
+        except ProvedorIAIndisponivelException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ProvedorIAIndisponivelException(f"Falha na pesquisa web: {exc}") from exc
+        chunks = getattr(grounding, "grounding_chunks", None) or []
+        return ResultadoBuscaWeb(
+            resumo=texto, fontes=fontes_web_a_partir_do_grounding(chunks, consulta)
+        )
+
     @staticmethod
     def _parse_fontes(
         texto: str, grounding: genai_types.GroundingMetadata | None, tema_titulo: str
@@ -401,6 +439,7 @@ class AdkProvider(AIProvider):
             model=self._settings.GEMINI_MODEL_AGENTE,
             instruction=AGENTE_ADMIN_SYSTEM_INSTRUCTION,
             tools=construir_tools(ctx),
+            generate_content_config=self._config_http,
         )
         return self._executar_agente(mensagens, ctx.conversa_id, agente)
 
@@ -414,10 +453,11 @@ class AdkProvider(AIProvider):
         smaller tool set (`adk_tools.construir_tools_aluno`) and system
         instruction - see `_executar_agente`."""
         agente = LlmAgent(
-            name="agente_aluno_agent",
+            name=_AGENTE_ALUNO_NOME,
             model=self._settings.GEMINI_MODEL_AGENTE,
             instruction=prompt_agente_aluno_system(conteudo_modulo),
             tools=construir_tools_aluno(ctx),
+            generate_content_config=self._config_http,
         )
         return self._executar_agente(mensagens, ctx.conversa_id, agente)
 
@@ -461,18 +501,60 @@ class AdkProvider(AIProvider):
                     raise ProvedorIAIndisponivelException(
                         f"Falha na conversa com o agente: {event.error_message}"
                     )
+                consumo.acumular(event.usage_metadata, event.model_version)
                 if event.is_final_response() and event.content and event.content.parts:
                     texto_final = "".join(part.text for part in event.content.parts if part.text)
             return texto_final
 
         try:
-            return self._run_no_loop_do_agente(_run())
+            with consumo.medir("conversar_com_agente"):
+                return self._run_no_loop_do_agente(_run())
         except LlmCallsLimitExceededError as exc:
             raise AgenteLimiteExcedidoException() from exc
         except ProvedorIAIndisponivelException:
             raise
         except Exception as exc:  # noqa: BLE001
             raise ProvedorIAIndisponivelException(f"Falha na conversa com o agente: {exc}") from exc
+
+    def registrar_troca(self, conversa_id: uuid.UUID, pergunta: str, resposta: str) -> None:
+        """Appends a question/answer the app answered itself (a chat shortcut) to
+        the conversation's ADK session: it then shows up in the history read by
+        `obter_historico_sessao`, and the agent sees it on the next turn.
+        Best-effort - the answer already reached the student, so a failure here
+        is logged, never raised."""
+        session_id = str(conversa_id)
+
+        async def _run() -> None:
+            service = self._agente_session_service
+            session = await service.get_session(
+                app_name=_APP_NAME, user_id=_USER_ID, session_id=session_id
+            )
+            if session is None:
+                session = await service.create_session(
+                    app_name=_APP_NAME, user_id=_USER_ID, session_id=session_id
+                )
+            turnos = (
+                ("user", "user", pergunta),
+                (_AGENTE_ALUNO_NOME, "model", resposta),
+            )
+            for autor, papel, texto in turnos:
+                evento = Event(
+                    author=autor,
+                    content=genai_types.Content(
+                        role=papel, parts=[genai_types.Part.from_text(text=texto)]
+                    ),
+                )
+                await service.append_event(session, evento)
+                session = await service.get_session(
+                    app_name=_APP_NAME, user_id=_USER_ID, session_id=session_id
+                )
+
+        try:
+            self._run_no_loop_do_agente(_run())
+        except Exception:  # noqa: BLE001 - the shortcut's answer was already delivered
+            logger.warning(
+                "não foi possível registrar o atalho na sessão %s", session_id, exc_info=True
+            )
 
     def obter_historico_sessao(self, conversa_id: uuid.UUID) -> list[MensagemHistorico] | None:
         """Reads the admin agent's ADK session for `conversa_id` and
@@ -528,6 +610,9 @@ class AdkProvider(AIProvider):
             chamadas_ferramentas=chamadas_ferramentas,
             created_at=datetime.fromtimestamp(event.timestamp, tz=UTC),
         )
+
+    def normalizar_titulo_trilha(self, titulo: str) -> str:
+        return self._gemini.normalizar_titulo_trilha(titulo)
 
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         return self._gemini.resumir_conversa(mensagens)

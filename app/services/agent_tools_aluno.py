@@ -9,12 +9,19 @@ error-handling shape of `agent_tools.executar_ferramenta`, but is a
 separate dispatch table - the two audiences' tools are never mixed.
 """
 
+import uuid
 from collections.abc import Callable
 from typing import Any
 
 from app.ai.schemas import FerramentaContexto, FerramentaDeclaracao
-from app.core.exceptions import AppException
-from app.services import curriculo_service, trilha_pessoal_service
+from app.core.exceptions import AppException, LimiteTrilhasMensalExcedidoException
+from app.services import (
+    curriculo_service,
+    dificuldade_service,
+    recomendacao_service,
+    trilha_cota_service,
+    trilha_pessoal_service,
+)
 
 # Mirrors `progresso_service`'s default (see `Settings.PONTUACAO_MINIMA_
 # APROVACAO`) - not threaded through `FerramentaContexto` since this is the
@@ -52,6 +59,39 @@ def _buscar_conteudo(args: dict[str, Any], ctx: FerramentaContexto) -> str:
     return "\n".join(linhas)
 
 
+def _legenda_niveis() -> str:
+    """Spelled out in the tool's own output because the model otherwise invents
+    the cut-offs (it was seen claiming "baixo = abaixo de 30%") and reads a
+    tema's absence from the list as a good level. Built from the same
+    constants `classificar_desempenho` uses, so the two can't drift apart."""
+    baixo = dificuldade_service.LIMIAR_BAIXO
+    alto = dificuldade_service.LIMIAR_ALTO
+    minimo = dificuldade_service.MINIMO_RESPOSTAS_PARA_NIVEL_TEMA
+    return (
+        f"Níveis por tema: baixo = menos de {baixo}% de acerto; medio = de {baixo}% até menos "
+        f"de {alto}%; alto = {alto}% ou mais (com menos de {minimo} respostas o nível ainda "
+        "é medio, pois não há dados suficientes). Um tema que não aparece na lista é um tema "
+        "em que o aluno ainda não respondeu nenhuma questão - isso NÃO significa nível alto."
+    )
+
+
+def _descrever_desempenho_por_tema(
+    temas, desempenho_por_tema: dict[uuid.UUID, tuple[int, int]]
+) -> list[str]:
+    """Only temas the student has actually answered questions in - a tema with
+    no answers has no performance to report, and listing it as "médio" would
+    read as a measured result."""
+    descricoes = []
+    for tema in temas:
+        corretas, total = desempenho_por_tema.get(tema.id, (0, 0))
+        if total == 0:
+            continue
+        nivel = dificuldade_service.classificar_desempenho(corretas, total)
+        taxa = dificuldade_service.taxa_acerto(corretas, total)
+        descricoes.append(f"{tema.titulo} {nivel} ({taxa:.0f}% de {total} respostas)")
+    return descricoes
+
+
 def _meu_desempenho(args: dict[str, Any], ctx: FerramentaContexto) -> str:
     materia_nome = args.get("materia_nome")
     materias = ctx.materia_repo.list_minhas_e_globais_with_temas_e_modulos(ctx.user_id)
@@ -63,11 +103,13 @@ def _meu_desempenho(args: dict[str, Any], ctx: FerramentaContexto) -> str:
 
     modulo_ids = [m.id for materia in materias for tema in materia.temas for m in tema.modulos]
     progresso_map = {
-        p.modulo_id: p
-        for p in ctx.progresso_repo.list_by_user_and_modulos(ctx.user_id, modulo_ids)
+        p.modulo_id: p for p in ctx.progresso_repo.list_by_user_and_modulos(ctx.user_id, modulo_ids)
     }
 
+    desempenho_por_tema = ctx.tentativa_repo.desempenho_por_tema(ctx.user_id)
+
     linhas = []
+    algum_nivel = False
     for materia in materias:
         xp = ctx.xp_repo.total_por_usuario_e_materia(ctx.user_id, materia.id)
         concluidos = 0
@@ -86,11 +128,55 @@ def _meu_desempenho(args: dict[str, Any], ctx: FerramentaContexto) -> str:
         linha = f"- {materia.nome}: {xp} XP, {concluidos} módulo(s) concluído(s)"
         if dificuldades:
             linha += f"; dificuldade em: {', '.join(dificuldades)}"
+        por_tema = _descrever_desempenho_por_tema(materia.temas, desempenho_por_tema)
+        if por_tema:
+            linha += f"; desempenho por tema: {', '.join(por_tema)}"
+            algum_nivel = True
         linhas.append(linha)
 
     if not linhas:
         return "O aluno ainda não tem nenhum progresso registrado."
+    if algum_nivel:
+        linhas.append(_legenda_niveis())
     return "\n".join(linhas)
+
+
+def _proximos_estudos(args: dict[str, Any], ctx: FerramentaContexto) -> str:
+    limite = args.get("limite")
+    limite = (
+        min(max(int(limite), 1), recomendacao_service.LIMITE_MAXIMO)
+        if isinstance(limite, int | float)
+        else recomendacao_service.LIMITE_PADRAO
+    )
+    recomendacoes = recomendacao_service.listar_recomendacoes(
+        ctx.user_id, ctx.materia_repo, ctx.progresso_repo, ctx.tentativa_repo, limite
+    )
+    if not recomendacoes:
+        return "Não há nenhum módulo liberado para o aluno estudar agora."
+    linhas = [
+        f"{r.posicao}. {r.modulo_titulo} ({r.materia_nome} > {r.tema_titulo}, "
+        f"módulo id={r.modulo_id}): {r.justificativa}"
+        for r in recomendacoes
+    ]
+    return "\n".join(linhas)
+
+
+def _aviso_trilha_parecida(veredito) -> str:
+    itens = "; ".join(
+        f"'{c.materia.nome}' (materia_id={c.materia.id}, {round(c.similaridade * 100)}% parecida)"
+        for c in veredito.candidatas
+    )
+    abertura = (
+        "Já existe uma trilha praticamente igual"
+        if veredito.status == "igual"
+        else "Existem trilhas parecidas"
+    )
+    return (
+        f"Não criei a trilha. {abertura}: {itens}. Apresente-as ao aluno e pergunte se ele "
+        "prefere usar uma delas (não gasta a cota mensal) ou criar mesmo assim (gasta 1 das "
+        "trilhas do mês). Só se ele insistir em criar, chame criar_minha_trilha de novo com "
+        "forcar_criacao=true."
+    )
 
 
 def _criar_minha_trilha(args: dict[str, Any], ctx: FerramentaContexto) -> str:
@@ -108,6 +194,17 @@ def _criar_minha_trilha(args: dict[str, Any], ctx: FerramentaContexto) -> str:
         ),
         None,
     )
+    if existente is None:
+        if ctx.verificar_trilha is not None:
+            veredito = ctx.verificar_trilha(nome_materia, descricao_tema)
+            nome_materia = veredito.nome_normalizado
+            if veredito.status != "nova" and not args.get("forcar_criacao"):
+                return _aviso_trilha_parecida(veredito)
+        try:
+            trilha_cota_service.exigir_vaga(ctx.user_id, ctx.materia_repo, ctx.limite_trilhas_mes)
+        except LimiteTrilhasMensalExcedidoException as exc:
+            # A tool reports it to the model (which tells the student) instead of failing the turn.
+            return f"Não criei a trilha: {exc.detail}"
     materia = existente or curriculo_service.criar_materia(
         nome_materia, None, ctx.materia_repo, owner_user_id=ctx.user_id
     )
@@ -163,8 +260,9 @@ TOOLS: list[FerramentaDeclaracao] = [
         nome="meu_desempenho",
         descricao=(
             "Retorna o XP e o progresso do aluno, opcionalmente filtrado por matéria - "
-            "incluindo em quais módulos ele teve nota baixa (sinal de dificuldade). Use "
-            "para adaptar a explicação ou sugerir o que revisar."
+            "incluindo em quais módulos ele teve nota baixa e o nível de desempenho "
+            "(baixo, medio ou alto) em cada tema em que já respondeu questões, com a taxa "
+            "de acerto. Use para adaptar a explicação ou sugerir o que revisar."
         ),
         parametros={
             "type": "OBJECT",
@@ -172,6 +270,24 @@ TOOLS: list[FerramentaDeclaracao] = [
                 "materia_nome": {
                     "type": "STRING",
                     "description": "Opcional - filtra por uma matéria específica.",
+                }
+            },
+        },
+    ),
+    FerramentaDeclaracao(
+        nome="proximos_estudos",
+        descricao=(
+            "Lista os módulos que o aluno deve estudar em seguida, do mais urgente para o "
+            "menos, com o motivo de cada um: tema com baixo desempenho, conteúdo ainda não "
+            "estudado ou revisão que já está na hora de repetir. Use quando o aluno perguntar "
+            "o que estudar, por onde continuar ou o que revisar."
+        ),
+        parametros={
+            "type": "OBJECT",
+            "properties": {
+                "limite": {
+                    "type": "INTEGER",
+                    "description": "Quantos módulos listar (padrão 5, máximo 20).",
                 }
             },
         },
@@ -196,6 +312,13 @@ TOOLS: list[FerramentaDeclaracao] = [
                     "description": "Título do primeiro tema dessa trilha.",
                 },
                 "descricao_tema": {"type": "STRING"},
+                "forcar_criacao": {
+                    "type": "BOOLEAN",
+                    "description": (
+                        "Só true depois que o aluno, avisado de trilhas iguais/parecidas, "
+                        "confirmou que quer criar mesmo assim."
+                    ),
+                },
             },
             "required": ["nome_materia", "titulo_tema"],
         },
@@ -205,6 +328,7 @@ TOOLS: list[FerramentaDeclaracao] = [
 _DISPATCH: dict[str, Callable[[dict[str, Any], FerramentaContexto], str]] = {
     "buscar_conteudo": _buscar_conteudo,
     "meu_desempenho": _meu_desempenho,
+    "proximos_estudos": _proximos_estudos,
     "criar_minha_trilha": _criar_minha_trilha,
 }
 

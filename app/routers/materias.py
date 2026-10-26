@@ -4,10 +4,10 @@ from fastapi import APIRouter, status
 
 from app.core.autorizacao import is_admin, verificar_acesso_escrita
 from app.core.exceptions import MateriaNaoEncontradaException
-from app.deps import CurrentUserId, MateriaRepo, TokenPayloadDep, VotoRepo
+from app.deps import CurrentUserId, MateriaRepo, SettingsDep, TokenPayloadDep, VotoRepo
 from app.models.materia import Materia
 from app.schemas.materia import MateriaCreate, MateriaOut, MateriaUpdate, VotoInput, VotoOut
-from app.services import curriculo_service, voto_service
+from app.services import curriculo_service, trilha_cota_service, voto_service
 
 router = APIRouter(prefix="/materias", tags=["materias"])
 
@@ -25,11 +25,18 @@ def _materia_out(materia: Materia, votos_por_id: dict[UUID, int]) -> MateriaOut:
 
 @router.post("", response_model=MateriaOut, status_code=status.HTTP_201_CREATED)
 def criar_materia(
-    body: MateriaCreate, user_id: CurrentUserId, payload: TokenPayloadDep, repo: MateriaRepo
+    body: MateriaCreate,
+    user_id: CurrentUserId,
+    payload: TokenPayloadDep,
+    repo: MateriaRepo,
+    settings: SettingsDep,
 ) -> MateriaOut:
-    """An admin creates global, shared curriculum content (unchanged
-    behavior). Any other authenticated student creates their own trilha
-    instead - publicly visible/votable by everyone, no limit on how many."""
+    """An admin creates global, shared curriculum content (the verified trilhas,
+    unchanged behavior, no limit). Any other authenticated student creates their
+    own trilha instead - publicly visible/votable by everyone, up to
+    `TRILHAS_POR_MES` per month (403 `LIMITE_TRILHAS_MENSAL` after that)."""
+    if not is_admin(payload):
+        trilha_cota_service.exigir_vaga(user_id, repo, settings.TRILHAS_POR_MES)
     if is_admin(payload):
         materia = curriculo_service.criar_materia(body.nome, body.descricao, repo)
     else:

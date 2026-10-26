@@ -22,9 +22,17 @@ class AlunoChatMensagemInput(BaseModel):
     )
 
 
+class FonteWebOut(BaseModel):
+    titulo: str
+    url: str
+    dominio: str | None = None
+    consulta: str | None = None
+
+
 class ChatRespostaOut(BaseModel):
     conversa_id: UUID
     resposta: str
+    fontes: list[FonteWebOut] = Field(default_factory=list)
     materia_criada_id: UUID | None = Field(
         None,
         description=(
@@ -34,6 +42,23 @@ class ChatRespostaOut(BaseModel):
         ),
     )
     tema_criado_id: UUID | None = None
+
+
+class LicaoInput(BaseModel):
+    modulo_id: UUID
+    conversa_id: UUID | None = Field(
+        None,
+        description="Conversa já aberta no módulo; omitido, a lição abre uma conversa nova.",
+    )
+
+
+class LicaoRespostaOut(BaseModel):
+    conversa_id: UUID | None
+    resposta: str | None = Field(
+        None, description="A explicação enviada agora; nula quando `ja_enviada`."
+    )
+    ja_enviada: bool
+    start_lesson: bool = True
 
 
 class ConversaOut(BaseModel):
@@ -54,6 +79,8 @@ class MensagemOut(BaseModel):
     conteudo: str | None
     chamadas_ferramentas: list[dict[str, Any]] | None
     created_at: datetime
+    fontes: list[FonteWebOut] | None = None
+    pergunta_id: UUID | None = None
 
 
 class ResumoConversaOut(BaseModel):

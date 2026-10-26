@@ -12,6 +12,7 @@ from typing import Annotated
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from app.ai import consumo
 from app.ai.adk_provider import AdkProvider
 from app.ai.base import AIProvider
 from app.ai.gemini_provider import GeminiProvider
@@ -19,6 +20,8 @@ from app.config import Settings, get_settings
 from app.core.exceptions import NaoAutenticadoException
 from app.core.security import TokenPayload, decode_token, require_admin_role
 from app.repositories.conversa_repository import ConversaRepo
+from app.repositories.ia_consumo_repository import IaConsumoRepo
+from app.repositories.licao_repository import LicaoRepo
 from app.repositories.materia_repository import MateriaRepo
 from app.repositories.modulo_repository import ModuloRepo
 from app.repositories.perfil_repository import PerfilRepo
@@ -27,6 +30,7 @@ from app.repositories.questionario_repository import QuestionarioRepo
 from app.repositories.resumo_estudo_repository import ResumoEstudoRepo
 from app.repositories.tema_repository import TemaRepo
 from app.repositories.tentativa_repository import TentativaRepo
+from app.repositories.trilha_estudando_repository import TrilhaEstudandoRepo
 from app.repositories.voto_repository import VotoRepo
 from app.repositories.xp_repository import XpRepo
 
@@ -41,12 +45,15 @@ __all__ = [
     "ModuloRepo",
     "QuestionarioRepo",
     "TentativaRepo",
+    "LicaoRepo",
     "ProgressoRepo",
     "ConversaRepo",
     "XpRepo",
     "PerfilRepo",
     "VotoRepo",
     "ResumoEstudoRepo",
+    "IaConsumoRepo",
+    "TrilhaEstudandoRepo",
 ]
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -84,7 +91,18 @@ def get_current_user_id(payload: TokenPayloadDep, perfil_repo: PerfilRepo) -> st
     return payload.user_id
 
 
-CurrentUserId = Annotated[str, Depends(get_current_user_id)]
+async def _atribuir_consumo_ao_usuario(
+    user_id: Annotated[str, Depends(get_current_user_id)],
+) -> str:
+    """Async on purpose: a contextvar set in a sync dependency (run in a worker
+    thread) is lost, but one set here is inherited by the endpoint's thread and
+    by anything it calls - which is how `app/ai/consumo.py` knows whose AI call
+    it is recording without every signature carrying the user id."""
+    consumo.definir_usuario(user_id)
+    return user_id
+
+
+CurrentUserId = Annotated[str, Depends(_atribuir_consumo_ao_usuario)]
 
 
 def require_admin(payload: TokenPayloadDep, perfil_repo: PerfilRepo) -> str:
@@ -93,7 +111,12 @@ def require_admin(payload: TokenPayloadDep, perfil_repo: PerfilRepo) -> str:
     return payload.user_id
 
 
-AdminUserId = Annotated[str, Depends(require_admin)]
+async def _atribuir_consumo_ao_admin(user_id: Annotated[str, Depends(require_admin)]) -> str:
+    consumo.definir_usuario(user_id)
+    return user_id
+
+
+AdminUserId = Annotated[str, Depends(_atribuir_consumo_ao_admin)]
 
 
 @lru_cache

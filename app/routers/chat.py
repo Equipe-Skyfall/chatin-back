@@ -15,6 +15,7 @@ from app.deps import (
     QuestionarioRepo,
     SettingsDep,
     TemaRepo,
+    TentativaRepo,
     VotoRepo,
     XpRepo,
 )
@@ -36,6 +37,7 @@ def enviar_mensagem(
     questionario_repo: QuestionarioRepo,
     xp_repo: XpRepo,
     progresso_repo: ProgressoRepo,
+    tentativa_repo: TentativaRepo,
     voto_repo: VotoRepo,
     ai_provider: AiProviderDep,
     settings: SettingsDep,
@@ -57,6 +59,7 @@ def enviar_mensagem(
         questionario_repo=questionario_repo,
         xp_repo=xp_repo,
         progresso_repo=progresso_repo,
+        tentativa_repo=tentativa_repo,
         voto_repo=voto_repo,
         ai_provider=ai_provider,
         pool_size=settings.QUESTIONARIO_POOL_SIZE,

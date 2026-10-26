@@ -5,6 +5,7 @@ that's what makes swapping the concrete strategy a no-op for callers.
 """
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
     from app.repositories.progresso_repository import ProgressoRepository
     from app.repositories.questionario_repository import QuestionarioRepository
     from app.repositories.tema_repository import TemaRepository
+    from app.repositories.tentativa_repository import TentativaRepository
     from app.repositories.voto_repository import VotoRepository
     from app.repositories.xp_repository import XpRepository
 
@@ -33,6 +35,28 @@ class ReferenciaFonte:
 
     titulo: str
     origem: str | None
+
+
+@dataclass(frozen=True)
+class FonteWeb:
+    """One web page the student chat's grounded search cited, shown to the
+    student as a link under the answer. `url` is the page's real address
+    (the Google redirect is resolved before saving, falling back to the
+    redirect itself); `consulta` is the search that surfaced it."""
+
+    titulo: str
+    url: str
+    dominio: str | None
+    consulta: str
+
+
+@dataclass(frozen=True)
+class ResultadoBuscaWeb:
+    """What `AIProvider.pesquisar_web` hands back to the agent's tool: a
+    synthesized answer to ground the reply in, plus the pages it cited."""
+
+    resumo: str
+    fontes: list[FonteWeb] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -180,7 +204,7 @@ class FerramentaContexto:
     `AdkProvider`'s ADK `SessionService`) keys that session off
     `conversa_id`. Shared by both the admin agent (`agent_tools.py`) and the
     student agent (`agent_tools_aluno.py`) - `xp_repo`/`progresso_repo`/
-    `voto_repo`/`background_tasks` exist for the latter's tools
+    `tentativa_repo`/`voto_repo`/`background_tasks` exist for the latter's tools
     (`meu_desempenho`, `criar_minha_trilha`) and are simply unused by the
     admin's; splitting into two context types wasn't worth it for the size
     of the difference."""
@@ -191,12 +215,22 @@ class FerramentaContexto:
     questionario_repo: "QuestionarioRepository"
     xp_repo: "XpRepository"
     progresso_repo: "ProgressoRepository"
+    tentativa_repo: "TentativaRepository"
     voto_repo: "VotoRepository"
     ai_provider: "AIProvider"
     pool_size: int
     user_id: str
     conversa_id: uuid.UUID
     background_tasks: BackgroundTasks | None = None
+    # Monthly cap on trilhas the student may create (the `criar_minha_trilha` tool).
+    limite_trilhas_mes: int = 3
+    # Duplicate check for `criar_minha_trilha`: (nome, descricao) -> Veredito
+    # (`trilha_duplicada_service.verificador`). None = no check (tests, admin).
+    verificar_trilha: Callable[[str, str | None], Any] | None = None
+    # Filled by the student agent's `buscar_fontes_web` tool during a turn;
+    # `chat_aluno_service.enviar_mensagem` persists it with the reply.
+    fontes_web: list[FonteWeb] = field(default_factory=list)
+    fontes_web_consultas: list[str] = field(default_factory=list)
     # Output, not input: `criar_minha_trilha` (agent_tools_aluno.py) writes
     # these when it actually creates something, so the router can hand the
     # ids back to the frontend (`ChatRespostaOut`) without the client having
@@ -221,3 +255,5 @@ class MensagemHistorico:
     conteudo: str | None
     chamadas_ferramentas: list[dict[str, Any]] | None
     created_at: datetime
+    fontes: list[dict[str, Any]] | None = None
+    pergunta_id: uuid.UUID | None = None

@@ -160,11 +160,36 @@ def prompt_planejar_modulos(
     )
 
 
+def prompt_pesquisa_web(consulta: str) -> str:
+    return (
+        f"Pesquise na web sobre: {consulta}\n\n"
+        "Responda em português, em no máximo 3 parágrafos curtos, só com informações "
+        "confirmadas pelas páginas encontradas. Prefira fontes educacionais, institucionais "
+        "ou de referência (universidades, órgãos públicos, enciclopédias)."
+    )
+
+
+def _escapar_chaves_para_instrucao_adk(texto: str) -> str:
+    """The ADK treats `{algo}` inside an agent's `instruction` string as a
+    session-state template variable (see `instructions_utils._TEMPLATE_VAR_PATTERN`
+    / `_is_valid_state_name`) - `{x}` raises `KeyError: Context variable not
+    found` and 502s the whole turn, `{qualquer coisa com espaço}` is left alone.
+    A módulo's AI-generated content routinely contains a bare `{x}` (algebra,
+    calculus...), and it's the only dynamic text ever interpolated into an
+    `instruction=` string in this codebase (every other agent's instruction is
+    static, so it's never scanned - the ADK skips the regex entirely when
+    there's no `{` at all). Swapping in the visually-identical fullwidth Unicode
+    brace (`｛｝`, U+FF5B/FF5D) defeats that regex - it only matches ASCII
+    `{`/`}` - without visibly changing the content the model reads."""
+    return texto.replace("{", "｛").replace("}", "｝")
+
+
 def prompt_agente_aluno_system(conteudo_modulo: str | None) -> str:
     if conteudo_modulo:
         contexto = (
             "\n\nO aluno está estudando o seguinte conteúdo agora - baseie sua resposta nele "
-            f"sempre que a pergunta se relacionar a ele:\n\n{conteudo_modulo}"
+            "sempre que a pergunta se relacionar a ele:\n\n"
+            f"{_escapar_chaves_para_instrucao_adk(conteudo_modulo)}"
         )
     else:
         contexto = (
@@ -176,20 +201,47 @@ def prompt_agente_aluno_system(conteudo_modulo: str | None) -> str:
         "a se preparar para o ENEM. Responda às perguntas do aluno de forma clara e objetiva, em "
         "português, com exemplos quando ajudar a fixar o conceito."
         f"{contexto}"
-        "\n\nVocê tem três ferramentas, use-as com bom senso, sem forçar:\n"
+        "\n\nVocê tem cinco ferramentas, use-as com bom senso, sem forçar:\n"
+        "- buscar_fontes_web: sempre que o aluno perguntar sobre um assunto de estudo "
+        "(conceito, fato, matéria), pesquise na web antes de responder para embasar a resposta "
+        "em fontes verificáveis. Não use para conversa casual, agradecimentos ou perguntas "
+        "sobre o desempenho dele. Os links encontrados são mostrados ao aluno automaticamente "
+        "abaixo da sua resposta - não cole URLs no texto; se a busca não devolver fontes, "
+        "responda normalmente sem inventar nenhuma.\n"
         "- buscar_conteudo: quando o aluno perguntar sobre um assunto amplo (não apenas o "
         "módulo atual), busque se já existe uma trilha - oficial ou de outro aluno - sobre "
         "esse assunto antes de responder só do seu conhecimento geral. Se encontrar, mencione "
         "e ofereça o link/nome; não invente que já respondeu usando ela se não usou.\n"
         "- meu_desempenho: use quando ajudar a adaptar a explicação (aluno com dificuldade "
         "numa matéria) ou quando o aluno perguntar como está indo.\n"
+        "- proximos_estudos: use quando o aluno perguntar o que estudar, por onde continuar "
+        "ou o que revisar. Apresente a lista na ordem recebida, com o motivo de cada módulo, "
+        "sem inventar módulos que não vieram da ferramenta.\n"
         "- criar_minha_trilha: só ofereça depois de checar com buscar_conteudo que realmente "
         "não existe nada parecido, e só crie se o aluno confirmar que quer. Deixe claro que "
         "vai levar um tempo (não é instantâneo) e que a trilha fica pública, votável por "
         "outros alunos - nunca prometa que o conteúdo já está pronto na mesma resposta em que "
-        "você chamou essa ferramenta.\n"
-        "Fora essas três coisas, você não tem acesso a nenhuma outra ferramenta nem a dado "
+        "você chamou essa ferramenta. Se ela responder que já existem trilhas iguais ou "
+        "parecidas, não crie: mostre-as ao aluno e deixe-o escolher usar uma delas (grátis) "
+        "ou criar mesmo assim (gasta 1 da cota mensal).\n"
+        "Fora essas cinco coisas, você não tem acesso a nenhuma outra ferramenta nem a dado "
         "algum do aluno - nunca finja que pode consultar ou alterar qualquer outra coisa."
+    )
+
+
+# Starts the synthetic user turn that makes the student agent open a módulo
+# with its lesson. It is not something the student typed: the history shown
+# to the front hides turns that begin with it (see `chat_aluno_service`).
+LICAO_MARCADOR = "[[LICAO_INICIAL]]"
+
+
+def prompt_licao_modulo(modulo_titulo: str | None) -> str:
+    titulo = f' "{modulo_titulo}"' if modulo_titulo else ""
+    return (
+        f"{LICAO_MARCADOR} O aluno acabou de abrir o módulo{titulo}. Dê a aula: explique o "
+        "tema de forma completa e organizada, em português, usando o conteúdo do módulo "
+        "como base e exemplos quando ajudarem. Não faça perguntas de verificação nem "
+        "proponha exercícios; só no final pergunte se o aluno tem alguma dúvida."
     )
 
 
@@ -198,6 +250,15 @@ def prompt_resumir_conversa() -> str:
         "Resuma a conversa acima entre um aluno e seu professor virtual em no máximo 3 frases, "
         "em português, destacando os principais tópicos e dúvidas tratados. Não cumprimente "
         "ninguém nem se dirija ao leitor - devolva apenas o resumo em si."
+    )
+
+
+def prompt_normalizar_titulo_trilha(titulo: str) -> str:
+    return (
+        "Corrija o título de trilha de estudos abaixo: ortografia, acentuação e "
+        "capitalização de título, em português, sem mudar o assunto nem acrescentar "
+        "palavras. Devolva apenas o título corrigido, sem aspas nem explicação.\n\n"
+        f"Título: {titulo}"
     )
 
 
