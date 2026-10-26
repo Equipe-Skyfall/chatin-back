@@ -520,11 +520,18 @@ class GeminiProvider(AIProvider):
     @_retry_transient
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         contents = [self._para_content(m) for m in mensagens]
+        # The instruction is the last user message, not a system instruction: with
+        # the conversation as the content, the model otherwise carries it on
+        # (answering "obrigado" with "de nada") or returns nothing, instead of
+        # summarizing it.
+        contents.append(
+            types.Content(role="user", parts=[types.Part.from_text(text=prompt_resumir_conversa())])
+        )
         try:
             response = self._gerar_conteudo(
                 model=self._settings.GEMINI_MODEL_PROFESSOR,
                 contents=contents,
-                config=types.GenerateContentConfig(system_instruction=prompt_resumir_conversa()),
+                config=types.GenerateContentConfig(),
             )
         except Exception as exc:  # noqa: BLE001
             raise ProvedorIAIndisponivelException(f"Falha ao resumir conversa: {exc}") from exc
