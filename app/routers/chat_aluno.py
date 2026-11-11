@@ -16,6 +16,7 @@ from app.deps import (
     PerfilRepo,
     ProgressoRepo,
     QuestionarioRepo,
+    ResumoAlunoRepo,
     SettingsDep,
     TemaRepo,
     TentativaRepo,
@@ -54,6 +55,7 @@ def enviar_mensagem(
     tentativa_repo: TentativaRepo,
     voto_repo: VotoRepo,
     perfil_repo: PerfilRepo,
+    resumo_aluno_repo: ResumoAlunoRepo,
     ai_provider: AiProviderDep,
     settings: SettingsDep,
     background_tasks: BackgroundTasks,
@@ -108,6 +110,9 @@ def enviar_mensagem(
         ctx,
         settings.MEMORIA_JANELA_MENSAGENS,
         resposta_pronta=resposta_pronta,
+        resumo_repo=resumo_aluno_repo,
+        janela_com_resumo=settings.MEMORIA_JANELA_COM_RESUMO,
+        resumo_a_cada=settings.RESUMO_ALUNO_A_CADA_MENSAGENS,
     )
     return ChatRespostaOut(
         conversa_id=conversa.id,

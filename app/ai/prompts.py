@@ -184,7 +184,7 @@ def _escapar_chaves_para_instrucao_adk(texto: str) -> str:
     return texto.replace("{", "｛").replace("}", "｝")
 
 
-def prompt_agente_aluno_system(conteudo_modulo: str | None) -> str:
+def prompt_agente_aluno_system(conteudo_modulo: str | None, resumo_aluno: str | None = None) -> str:
     if conteudo_modulo:
         contexto = (
             "\n\nO aluno está estudando o seguinte conteúdo agora - baseie sua resposta nele "
@@ -195,6 +195,12 @@ def prompt_agente_aluno_system(conteudo_modulo: str | None) -> str:
         contexto = (
             "\n\nO aluno não abriu esta conversa a partir de um módulo específico - responda de "
             "forma geral, sempre com foco em ajudar na preparação para o ENEM."
+        )
+    if resumo_aluno:
+        contexto += (
+            "\n\nResumo do que você já conversou com este aluno em conversas anteriores - use "
+            "para dar continuidade e não repetir o que ele já viu, sem citá-lo literalmente:\n\n"
+            f"{_escapar_chaves_para_instrucao_adk(resumo_aluno)}"
         )
     return (
         "Você é um professor particular, paciente e didático, ajudando um estudante brasileiro "
@@ -250,6 +256,21 @@ def prompt_resumir_conversa() -> str:
         "Resuma a conversa acima entre um aluno e seu professor virtual em no máximo 3 frases, "
         "em português, destacando os principais tópicos e dúvidas tratados. Não cumprimente "
         "ninguém nem se dirija ao leitor - devolva apenas o resumo em si."
+    )
+
+
+def prompt_resumir_historico_aluno(resumo_anterior: str | None) -> str:
+    anterior = (
+        f"Resumo até agora:\n{resumo_anterior}\n\n"
+        if resumo_anterior
+        else "Ainda não há resumo anterior.\n\n"
+    )
+    return (
+        f"{anterior}Atualize o resumo do histórico deste aluno com a conversa acima, em "
+        "português, em no máximo 8 frases. Mantenha o que ainda vale do resumo anterior e "
+        "destaque: assuntos e matérias estudados, dúvidas e dificuldades recorrentes, e o que "
+        "ele pretende estudar. Não cumprimente ninguém nem se dirija ao leitor - devolva "
+        "apenas o resumo em si."
     )
 
 

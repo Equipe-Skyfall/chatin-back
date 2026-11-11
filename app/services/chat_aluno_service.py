@@ -6,6 +6,7 @@ aluno`) - see `app/ai/base.py`.
 """
 
 import logging
+import uuid
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 
@@ -17,14 +18,20 @@ from app.ai.prompts import LICAO_MARCADOR, prompt_licao_modulo
 from app.ai.schemas import FerramentaContexto, MensagemAgente, MensagemHistorico
 from app.core.exceptions import ConversaOcupadaException, ProvedorIAIndisponivelException
 from app.core.falha_ia import TipoFalhaIA
+from app.db.session import nova_sessao
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, Conversa, Mensagem
 from app.repositories.conversa_repository import ConversaRepository
 from app.repositories.licao_repository import LicaoRepository
 from app.repositories.modulo_repository import ModuloRepository
+from app.repositories.resumo_aluno_repository import ResumoAlunoRepository
 
 logger = logging.getLogger(__name__)
 
 _FALHAS_QUE_INDICAM_IA_FORA = {TipoFalhaIA.LIMITE, TipoFalhaIA.INDISPONIVEL, TipoFalhaIA.TIMEOUT}
+
+# Most messages sent to the model in one summary refresh - bounds the prompt when
+# a conversation grew a lot (or earlier refreshes kept failing) before this one.
+_MAX_MENSAGENS_POR_ATUALIZACAO = 40
 
 
 def _mensagem_para_historico(mensagem: Mensagem) -> MensagemAgente:
@@ -41,6 +48,10 @@ def enviar_mensagem(
     ctx: FerramentaContexto,
     janela: int,
     resposta_pronta: str | None = None,
+    *,
+    resumo_repo: ResumoAlunoRepository | None = None,
+    janela_com_resumo: int | None = None,
+    resumo_a_cada: int | None = None,
 ) -> str:
     """`resposta_pronta` is the answer to a message the app already answered
     itself (a chat shortcut, see `atalho_service`): the agent is not called, the
@@ -51,7 +62,15 @@ def enviar_mensagem(
     sent to the model (older ones stay in Postgres, just not in the prompt) -
     bounds prompt size and cost on long chats. `ctx` is this student's
     `FerramentaContexto` (see `routers/chat_aluno.py` for how it's built) -
-    `ctx.conversa_id` must equal `conversa.id`."""
+    `ctx.conversa_id` must equal `conversa.id`.
+
+    With `resumo_repo`, the student's running summary (`ResumoAluno`, across
+    all their conversations) goes to the agent as context, and since it carries
+    the older context only the last `janela_com_resumo` messages go along with
+    it. After the reply the summary is refreshed in the background once the
+    conversation has `resumo_a_cada` messages it doesn't cover yet. Without
+    `resumo_repo` (or while the summary doesn't exist yet) behaviour is the
+    plain `janela`."""
 
     def _salvar(papel: str, conteudo: str, **extras) -> Mensagem:
         ordem = conversa_repo.proxima_ordem(conversa.id)
@@ -77,6 +96,10 @@ def enviar_mensagem(
         ai_provider.registrar_troca(conversa.id, texto_usuario, resposta_pronta)
         return resposta_pronta
 
+    resumo = resumo_repo.get_by_user(conversa.user_id) if resumo_repo is not None else None
+    if resumo is not None and janela_com_resumo is not None:
+        janela = janela_com_resumo
+
     recarregada = conversa_repo.get_with_mensagens(conversa.id)
     historico = [_mensagem_para_historico(m) for m in recarregada.mensagens[-janela:]]
 
@@ -86,7 +109,9 @@ def enviar_mensagem(
         if modulo is not None:
             conteudo_modulo = modulo.conteudo
 
-    resposta = ai_provider.conversar_com_agente_aluno(historico, conteudo_modulo, ctx)
+    resposta = ai_provider.conversar_com_agente_aluno(
+        historico, conteudo_modulo, ctx, resumo.resumo if resumo is not None else None
+    )
     # The sources the agent's `buscar_fontes_web` tool collected this turn
     # (US-10) - stored with the reply, tied to the question that prompted them.
     fontes = [asdict(f) for f in ctx.fontes_web] or None
@@ -98,7 +123,93 @@ def enviar_mensagem(
     )
     conversa_repo.tocar(conversa.id)
     conversa_repo.commit()
+
+    if resumo_repo is not None and resumo_a_cada is not None:
+        ja_resumidas = resumo.mensagens_resumidas.get(str(conversa.id), 0) if resumo else 0
+        # `recarregada` has the question; the reply was stored just above.
+        if len(recarregada.mensagens) + 1 - ja_resumidas >= resumo_a_cada:
+            if ctx.background_tasks is not None:
+                ctx.background_tasks.add_task(
+                    atualizar_resumo_aluno_em_background,
+                    conversa.user_id,
+                    conversa.id,
+                    ai_provider,
+                    resumo_a_cada,
+                )
+            else:
+                # No BackgroundTasks handed in (ctx built outside a real HTTP
+                # request, e.g. a test) - do it inline rather than drop it.
+                atualizar_resumo_aluno(
+                    conversa.user_id,
+                    conversa.id,
+                    conversa_repo,
+                    resumo_repo,
+                    ai_provider,
+                    resumo_a_cada,
+                )
     return resposta
+
+
+def atualizar_resumo_aluno(
+    user_id: str,
+    conversa_id: uuid.UUID,
+    conversa_repo: ConversaRepository,
+    resumo_repo: ResumoAlunoRepository,
+    ai_provider: AIProvider,
+    resumo_a_cada: int,
+) -> bool:
+    """Folds the messages of `conversa_id` that the student's summary doesn't
+    cover yet into it - only once there are `resumo_a_cada` of them - and
+    stores the result. Returns whether the summary was updated. A provider
+    failure keeps the previous summary (RNF6): the progress isn't advanced, so
+    the next turn retries with the same messages plus the new ones."""
+    conversa = conversa_repo.get_with_mensagens(conversa_id)
+    if conversa is None or conversa.user_id != user_id:
+        return False
+
+    resumo = resumo_repo.get_by_user(user_id)
+    progresso = dict(resumo.mensagens_resumidas) if resumo is not None else {}
+    novas = conversa.mensagens[progresso.get(str(conversa_id), 0) :]
+    if len(novas) < resumo_a_cada:
+        return False
+
+    try:
+        texto = ai_provider.resumir_historico_aluno(
+            resumo.resumo if resumo is not None else None,
+            [_mensagem_para_historico(m) for m in novas[-_MAX_MENSAGENS_POR_ATUALIZACAO:]],
+        )
+    except ProvedorIAIndisponivelException:
+        logger.warning(
+            "Falha ao atualizar o resumo do aluno %s; mantendo o anterior.", user_id, exc_info=True
+        )
+        return False
+
+    progresso[str(conversa_id)] = len(conversa.mensagens)
+    resumo_repo.salvar(user_id, texto, progresso)
+    resumo_repo.commit()
+    return True
+
+
+def atualizar_resumo_aluno_em_background(
+    user_id: str, conversa_id: uuid.UUID, ai_provider: AIProvider, resumo_a_cada: int
+) -> None:
+    """Background task body: runs after the chat reply went out, on its own
+    session (the request's is closed by then - see `nova_sessao`). Nothing to
+    propagate to, so any failure is only logged."""
+    db = nova_sessao()
+    try:
+        atualizar_resumo_aluno(
+            user_id,
+            conversa_id,
+            ConversaRepository(db),
+            ResumoAlunoRepository(db),
+            ai_provider,
+            resumo_a_cada,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Falha inesperada ao atualizar o resumo do aluno %s", user_id)
+    finally:
+        db.close()
 
 
 def enviar_licao(

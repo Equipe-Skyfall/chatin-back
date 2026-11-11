@@ -15,13 +15,14 @@ from tests.fakes.fake_ai_provider import FakeAIProvider
 from tests.fakes.in_memory_repositories import (
     InMemoryConversaRepository,
     InMemoryProgressoRepository,
+    InMemoryResumoAlunoRepository,
 )
 
 USER = "aluno-1"
 
 
 class _IAForaDoAr(FakeAIProvider):
-    def conversar_com_agente_aluno(self, mensagens, conteudo_modulo, ctx):
+    def conversar_com_agente_aluno(self, mensagens, conteudo_modulo, ctx, resumo_aluno=None):
         self.conversar_com_agente_aluno_calls += 1
         raise ProvedorIAIndisponivelException("provedor fora do ar")
 
@@ -82,12 +83,17 @@ def api(monkeypatch):
     from app.repositories.perfil_repository import get_perfil_repository
     from app.repositories.progresso_repository import get_progresso_repository
     from app.repositories.questionario_repository import get_questionario_repository
+    from app.repositories.resumo_aluno_repository import get_resumo_aluno_repository
     from app.repositories.tema_repository import get_tema_repository
     from app.repositories.tentativa_repository import get_tentativa_repository
     from app.repositories.voto_repository import get_voto_repository
     from app.repositories.xp_repository import get_xp_repository
 
-    repos = SimpleNamespace(conversa=InMemoryConversaRepository(), ia=FakeAIProvider())
+    repos = SimpleNamespace(
+        conversa=InMemoryConversaRepository(),
+        ia=FakeAIProvider(),
+        resumo=InMemoryResumoAlunoRepository(),
+    )
     overrides = {
         get_current_user_id: lambda: USER,
         get_ai_provider: lambda: repos.ia,
@@ -101,6 +107,7 @@ def api(monkeypatch):
         get_tentativa_repository: lambda: _TentativaRepo(),
         get_xp_repository: lambda: _XpRepo(),
         get_perfil_repository: lambda: _PerfilRepo(),
+        get_resumo_aluno_repository: lambda: repos.resumo,
     }
     app.dependency_overrides.update(overrides)
     try:
@@ -197,3 +204,12 @@ def test_conversa_seguinte_continua_na_mesma_conversa(api):
         PAPEL_USUARIO,
         PAPEL_ASSISTENTE,
     ]
+
+
+def test_resumo_salvo_do_aluno_chega_ao_agente(api):
+    api.repos.resumo.salvar(USER, "O aluno estuda funções do segundo grau.", {})
+
+    resposta = api.client.post("/chat", json={"texto": "explique logaritmos"})
+
+    assert resposta.status_code == 200, resposta.text
+    assert api.repos.ia.resumos_aluno_recebidos == ["O aluno estuda funções do segundo grau."]

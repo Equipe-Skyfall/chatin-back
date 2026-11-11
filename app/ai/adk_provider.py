@@ -448,6 +448,7 @@ class AdkProvider(AIProvider):
         mensagens: list[MensagemAgente],
         conteudo_modulo: str | None,
         ctx: FerramentaContexto,
+        resumo_aluno: str | None = None,
     ) -> str:
         """Same as `conversar_com_ferramentas`, the student agent's much
         smaller tool set (`adk_tools.construir_tools_aluno`) and system
@@ -455,7 +456,7 @@ class AdkProvider(AIProvider):
         agente = LlmAgent(
             name=_AGENTE_ALUNO_NOME,
             model=self._settings.GEMINI_MODEL_AGENTE,
-            instruction=prompt_agente_aluno_system(conteudo_modulo),
+            instruction=prompt_agente_aluno_system(conteudo_modulo, resumo_aluno),
             tools=construir_tools_aluno(ctx),
             generate_content_config=self._config_http,
         )
@@ -616,6 +617,11 @@ class AdkProvider(AIProvider):
 
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         return self._gemini.resumir_conversa(mensagens)
+
+    def resumir_historico_aluno(
+        self, resumo_anterior: str | None, mensagens: list[MensagemAgente]
+    ) -> str:
+        return self._gemini.resumir_historico_aluno(resumo_anterior, mensagens)
 
     def gerar_feedback_erros(self, erros: list[ErroQuestao]) -> str:
         return self._gemini.gerar_feedback_erros(erros)
