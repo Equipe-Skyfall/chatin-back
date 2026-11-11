@@ -25,23 +25,51 @@ class XpRepository(SqlAlchemyRepository[XpEvento]):
         return self.db.execute(stmt).scalar_one()
 
     def ranking_global(self, limit: int = 20) -> list[tuple[str, int]]:
+        return self._ranking(None, limit)
+
+    def ranking_por_materia(self, materia_id: uuid.UUID, limit: int = 20) -> list[tuple[str, int]]:
+        return self._ranking(materia_id, limit)
+
+    def posicao_global(self, user_id: str) -> tuple[int, int] | None:
+        return self._posicao(user_id, None)
+
+    def posicao_por_materia(self, user_id: str, materia_id: uuid.UUID) -> tuple[int, int] | None:
+        return self._posicao(user_id, materia_id)
+
+    def _totais(self, materia_id: uuid.UUID | None):
+        stmt = select(XpEvento.user_id, func.sum(XpEvento.quantidade).label("total")).group_by(
+            XpEvento.user_id
+        )
+        if materia_id is not None:
+            stmt = stmt.where(XpEvento.materia_id == materia_id)
+        return stmt
+
+    def _ranking(self, materia_id: uuid.UUID | None, limit: int) -> list[tuple[str, int]]:
+        """Highest XP first; ties break by user_id so the order (and the
+        positions `_posicao` reports) never changes between two requests."""
         stmt = (
-            select(XpEvento.user_id, func.sum(XpEvento.quantidade).label("total"))
-            .group_by(XpEvento.user_id)
-            .order_by(func.sum(XpEvento.quantidade).desc())
+            self._totais(materia_id)
+            .order_by(func.sum(XpEvento.quantidade).desc(), XpEvento.user_id)
             .limit(limit)
         )
         return [(row.user_id, row.total) for row in self.db.execute(stmt)]
 
-    def ranking_por_materia(self, materia_id: uuid.UUID, limit: int = 20) -> list[tuple[str, int]]:
-        stmt = (
-            select(XpEvento.user_id, func.sum(XpEvento.quantidade).label("total"))
-            .where(XpEvento.materia_id == materia_id)
-            .group_by(XpEvento.user_id)
-            .order_by(func.sum(XpEvento.quantidade).desc())
-            .limit(limit)
-        )
-        return [(row.user_id, row.total) for row in self.db.execute(stmt)]
+    def _posicao(self, user_id: str, materia_id: uuid.UUID | None) -> tuple[int, int] | None:
+        """(1-based position, XP) of one student under the same ordering as
+        `_ranking`, or `None` when they have no XP there yet."""
+        totais = self._totais(materia_id).subquery()
+        meu_total = self.db.execute(
+            select(totais.c.total).where(totais.c.user_id == user_id)
+        ).scalar_one_or_none()
+        if meu_total is None:
+            return None
+        na_frente = self.db.execute(
+            select(func.count()).where(
+                (totais.c.total > meu_total)
+                | ((totais.c.total == meu_total) & (totais.c.user_id < user_id))
+            )
+        ).scalar_one()
+        return na_frente + 1, int(meu_total)
 
 
 def get_xp_repository(db: DbSession) -> XpRepository:

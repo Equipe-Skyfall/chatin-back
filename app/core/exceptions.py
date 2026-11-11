@@ -81,6 +81,12 @@ class ResumoEstudoNaoEncontradoException(RecursoNaoEncontradoException):
 # --- 400s / 422s (bad request / invalid state) ---
 
 
+class ApelidoEmUsoException(AppException):
+    status_code = 409
+    detail = "Este apelido já está em uso. Escolha outro."
+    code = "apelido_em_uso"
+
+
 class TemaNaoProntoException(AppException):
     status_code = 400
     detail = "O tema ainda não está pronto (fontes não encontradas)."

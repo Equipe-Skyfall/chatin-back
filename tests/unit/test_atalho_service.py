@@ -54,7 +54,7 @@ class _PerfilRepo:
     def __init__(self, nomes=None):
         self._nomes = nomes or {}
 
-    def nomes_por_ids(self, ids):
+    def apelidos_por_ids(self, ids):
         return {i: self._nomes[i] for i in ids if i in self._nomes}
 
 
@@ -159,7 +159,7 @@ def test_xp_de_quem_ainda_nao_tem_nivel():
 # --- ranking ---
 
 
-def test_ranking_mostra_o_topo_com_nomes_e_a_posicao_do_aluno():
+def test_ranking_mostra_o_topo_com_apelidos_e_a_posicao_do_aluno():
     ranking = [("a", 900), ("b", 800), (USER, 700), ("d", 600)]
     perfil = _PerfilRepo({"a": "Ana", "b": "Bruno", USER: "Eu"})
 
@@ -170,7 +170,7 @@ def test_ranking_mostra_o_topo_com_nomes_e_a_posicao_do_aluno():
         "1. Ana - 900 XP",
         "2. Bruno - 800 XP",
         "3. Eu - 700 XP",
-        "4. Aluno - 600 XP",  # no name known for this one
+        "4. Aluno D - 600 XP",  # no apelido chosen: neutral name from the id
         "Sua posição: 3º, com 700 XP.",
     ]
 

@@ -1,11 +1,11 @@
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.core.exceptions import MateriaNaoEncontradaException
 from app.deps import CurrentUserId, MateriaRepo, PerfilRepo, XpRepo
-from app.schemas.xp import MeuXpOut, RankingEntradaOut, RankingOut, XpPorMateriaOut
-from app.services import xp_service
+from app.schemas.xp import MeuXpOut, RankingOut, XpPorMateriaOut
+from app.services import ranking_service, xp_service
 
 router = APIRouter(tags=["xp"])
 
@@ -32,15 +32,15 @@ def meu_xp(user_id: CurrentUserId, xp_repo: XpRepo, materia_repo: MateriaRepo) -
 
 @router.get("/ranking", response_model=RankingOut)
 def ranking_global(
-    user_id: CurrentUserId, xp_repo: XpRepo, perfil_repo: PerfilRepo, limit: int = 20
+    user_id: CurrentUserId,
+    xp_repo: XpRepo,
+    perfil_repo: PerfilRepo,
+    limit: int = Query(20, ge=1, le=100),
 ) -> RankingOut:
     entradas = xp_repo.ranking_global(limit)
-    nomes = perfil_repo.nomes_por_ids([uid for uid, _ in entradas])
-    return RankingOut(
-        entradas=[
-            RankingEntradaOut(posicao=i + 1, user_id=uid, nome=nomes.get(uid), xp=xp)
-            for i, (uid, xp) in enumerate(entradas)
-        ]
+    apelidos = perfil_repo.apelidos_por_ids([uid for uid, _ in entradas] + [user_id])
+    return ranking_service.montar_ranking(
+        entradas, apelidos, user_id, xp_repo.posicao_global(user_id)
     )
 
 
@@ -51,15 +51,12 @@ def ranking_por_materia(
     xp_repo: XpRepo,
     materia_repo: MateriaRepo,
     perfil_repo: PerfilRepo,
-    limit: int = 20,
+    limit: int = Query(20, ge=1, le=100),
 ) -> RankingOut:
     if materia_repo.get(materia_id) is None:
         raise MateriaNaoEncontradaException(materia_id)
     entradas = xp_repo.ranking_por_materia(materia_id, limit)
-    nomes = perfil_repo.nomes_por_ids([uid for uid, _ in entradas])
-    return RankingOut(
-        entradas=[
-            RankingEntradaOut(posicao=i + 1, user_id=uid, nome=nomes.get(uid), xp=xp)
-            for i, (uid, xp) in enumerate(entradas)
-        ]
+    apelidos = perfil_repo.apelidos_por_ids([uid for uid, _ in entradas] + [user_id])
+    return ranking_service.montar_ranking(
+        entradas, apelidos, user_id, xp_repo.posicao_por_materia(user_id, materia_id)
     )

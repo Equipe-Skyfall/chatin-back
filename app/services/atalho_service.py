@@ -10,7 +10,7 @@ answered here at all - it goes to the agent as usual (`tentar_atalho` returns
 
 from app.ai.schemas import FerramentaContexto
 from app.repositories.perfil_repository import PerfilRepository
-from app.services import dificuldade_service, intencao_service, xp_service
+from app.services import dificuldade_service, intencao_service, ranking_service, xp_service
 from app.services.agent_tools_aluno import executar_ferramenta_aluno
 
 TAMANHO_DO_TOPO = 5
@@ -61,9 +61,9 @@ def _ranking(ctx: FerramentaContexto, perfil_repo: PerfilRepository) -> str:
     entradas = ctx.xp_repo.ranking_global(LIMITE_DA_POSICAO)
     if not entradas:
         return "Ainda ninguém tem XP no ranking."
-    nomes = perfil_repo.nomes_por_ids([uid for uid, _ in entradas[:TAMANHO_DO_TOPO]])
+    apelidos = perfil_repo.apelidos_por_ids([uid for uid, _ in entradas[:TAMANHO_DO_TOPO]])
     linhas = [
-        f"{posicao}. {nomes.get(uid) or 'Aluno'} - {xp} XP"
+        f"{posicao}. {ranking_service.apelido_de_exibicao(uid, apelidos.get(uid))} - {xp} XP"
         for posicao, (uid, xp) in enumerate(entradas[:TAMANHO_DO_TOPO], start=1)
     ]
     minha = next(
