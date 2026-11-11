@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     # Student chat: how many of a conversation's most recent messages are sent
     # to the model each turn - bounds prompt size (and cost) on long chats.
     MEMORIA_JANELA_MENSAGENS: int = 20
+    # Once the student has a running summary (`ResumoAluno`) it carries the
+    # older context, so only this many recent messages go along with it. Must
+    # stay >= RESUMO_ALUNO_A_CADA_MENSAGENS, or messages not yet folded into the
+    # summary would fall out of the prompt.
+    MEMORIA_JANELA_COM_RESUMO: int = 12
+    # The summary is refreshed (one AI call) when a conversation has this many
+    # messages the summary doesn't cover yet, not on every turn.
+    RESUMO_ALUNO_A_CADA_MENSAGENS: int = 10
 
     # App
     ENV: str = "local"

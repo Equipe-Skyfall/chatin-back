@@ -56,3 +56,15 @@ def test_conteudo_com_chaves_mas_sem_identificador_bare_ja_seria_seguro():
     texto = "O conjunto {1, 2, 3} e o domínio {x ∈ R}."
 
     assert not _tem_variavel_de_template_adk(texto)
+
+
+def test_resumo_do_aluno_entra_na_instrucao_sem_quebrar_o_template_do_adk():
+    instrucao = prompt_agente_aluno_system(None, "Estuda f(x) = {x} e logaritmos.")
+
+    assert "Estuda f(x)" in instrucao
+    assert not _tem_variavel_de_template_adk(instrucao)
+
+
+def test_sem_resumo_a_instrucao_nao_menciona_conversas_anteriores():
+    assert "conversas anteriores" not in prompt_agente_aluno_system(None)
+    assert "conversas anteriores" in prompt_agente_aluno_system(None, "Estuda logaritmos.")

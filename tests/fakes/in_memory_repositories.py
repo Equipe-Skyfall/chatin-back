@@ -12,6 +12,7 @@ from app.models.modulo import Modulo
 from app.models.progresso import STATUS_DISPONIVEL, ProgressoUsuario
 from app.models.questao import Questao
 from app.models.questionario import Questionario
+from app.models.resumo_aluno import ResumoAluno
 from app.models.resumo_estudo import ResumoEstudo
 from app.models.tentativa import (
     STATUS_EM_ANDAMENTO,
@@ -484,3 +485,20 @@ class InMemoryResumoEstudoRepository:
 
     def refresh(self, entity: ResumoEstudo) -> None:
         pass
+
+
+class InMemoryResumoAlunoRepository:
+    def __init__(self):
+        self.resumos: dict[str, ResumoAluno] = {}
+        self.commits = 0
+
+    def get_by_user(self, user_id: str) -> ResumoAluno | None:
+        return self.resumos.get(user_id)
+
+    def salvar(self, user_id: str, resumo: str, mensagens_resumidas: dict[str, int]) -> None:
+        self.resumos[user_id] = ResumoAluno(
+            user_id=user_id, resumo=resumo, mensagens_resumidas=dict(mensagens_resumidas)
+        )
+
+    def commit(self) -> None:
+        self.commits += 1
