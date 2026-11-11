@@ -11,6 +11,7 @@ from app.models.questao import Questao
 from app.models.questionario import Questionario
 from app.models.resumo_aluno import ResumoAluno
 from app.models.resumo_estudo import ResumoEstudo
+from app.models.streak import StreakUsuario
 from app.models.tema import Tema
 from app.models.tentativa import (
     RespostaTentativa,
@@ -43,4 +44,5 @@ __all__ = [
     "IaConsumo",
     "LicaoIniciada",
     "TrilhaEstudando",
+    "StreakUsuario",
 ]
