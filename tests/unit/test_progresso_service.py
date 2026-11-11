@@ -210,6 +210,36 @@ def test_montar_progresso_inclui_desempenho_por_tema():
     assert por_tema[tema_sem_dados.id].total_respostas == 0
 
 
+def test_montar_progresso_media_acerto_soma_todas_as_respostas():
+    materia = MateriaBuilder().build()
+    tema_a = TemaBuilder().com_materia_id(materia.id).pronto().build()
+    tema_b = TemaBuilder().com_materia_id(materia.id).pronto().build()
+    materia.temas = [tema_a, tema_b]
+
+    out = progresso_service.montar_progresso(
+        [materia], [], {}, {tema_a.id: (9, 10), tema_b.id: (1, 10)}
+    )
+
+    assert out.media_acerto == 50.0
+    assert out.total_respostas == 20
+
+
+def test_montar_progresso_media_acerto_pondera_pelo_numero_de_respostas():
+    out = progresso_service.montar_progresso(
+        [], [], {}, {uuid.uuid4(): (3, 3), uuid.uuid4(): (0, 1)}
+    )
+
+    assert out.media_acerto == 75.0
+    assert out.total_respostas == 4
+
+
+def test_montar_progresso_sem_respostas_nao_tem_media():
+    out = progresso_service.montar_progresso([], [], {}, {})
+
+    assert out.media_acerto is None
+    assert out.total_respostas == 0
+
+
 def test_montar_trilha_marca_start_lesson_dos_modulos_com_licao():
     tema_id = uuid.uuid4()
     m1 = ModuloBuilder().com_tema_id(tema_id).com_ordem(0).build()
