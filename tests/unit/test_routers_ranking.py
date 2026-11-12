@@ -17,7 +17,7 @@ NOMES = {"u1": "Ana Souza", "u2": "Bruno Lima", "u3": "Carla Dias", "u4": "Davi 
 
 
 class _PerfilRepo:
-    def nomes_por_ids(self, ids):
+    def apelidos_por_ids(self, ids):
         return {uid: NOMES[uid] for uid in ids if uid in NOMES}
 
 
@@ -129,12 +129,12 @@ def test_aluno_sem_xp_nao_tem_posicao(api):
     assert corpo["meu_xp"] == 0
 
 
-def test_aluno_sem_nome_no_perfil_aparece_como_aluno(api):
+def test_aluno_sem_apelido_aparece_com_nome_neutro(api):
     _dar_xp(api.estado, "sem-perfil", 100)
 
     corpo = api.client.get("/ranking").json()
 
-    assert corpo["entradas"][0]["nome"] == "Aluno"
+    assert corpo["entradas"][0]["nome"] == "Aluno RFIL"
     assert "sem-perfil" not in api.client.get("/ranking").text
 
 

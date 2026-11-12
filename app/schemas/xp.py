@@ -19,7 +19,7 @@ class MeuXpOut(BaseModel):
 
 
 class RankingEntradaOut(BaseModel):
-    """What the ranking shows of a student: their name and XP, nothing that
+    """What the ranking shows of a student: their apelido (`nome`) and XP, nothing that
     identifies them elsewhere (no user id, no e-mail). `voce` marks the
     authenticated student's own entry."""
 

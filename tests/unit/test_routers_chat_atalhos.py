@@ -61,7 +61,7 @@ class _XpRepo:
 
 
 class _PerfilRepo:
-    def nomes_por_ids(self, ids):
+    def apelidos_por_ids(self, ids):
         return {"outro": "Ana", USER: "Eu"}
 
 

@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from app.core.exceptions import MateriaNaoEncontradaException
 from app.deps import CurrentUserId, MateriaRepo, PerfilRepo, StreakRepo, XpRepo
 from app.schemas.xp import MeuXpOut, RankingEntradaOut, RankingOut, XpPorMateriaOut
-from app.services import streak_service, xp_service
+from app.services import ranking_service, streak_service, xp_service
 
 router = APIRouter(tags=["xp"])
 
@@ -35,20 +35,21 @@ def meu_xp(
     )
 
 
-NOME_PADRAO = "Aluno"
-
-
 def _montar_ranking(
     entradas: list[tuple[str, int]],
     minha: tuple[int, int] | None,
     user_id: str,
     perfil_repo: PerfilRepo,
 ) -> RankingOut:
-    nomes = perfil_repo.nomes_por_ids([uid for uid, _ in entradas])
+    # `nome` carries the apelido the student chose - never their real name.
+    apelidos = perfil_repo.apelidos_por_ids([uid for uid, _ in entradas])
     return RankingOut(
         entradas=[
             RankingEntradaOut(
-                posicao=i + 1, nome=nomes.get(uid) or NOME_PADRAO, xp=xp, voce=uid == user_id
+                posicao=i + 1,
+                nome=ranking_service.apelido_de_exibicao(uid, apelidos.get(uid)),
+                xp=xp,
+                voce=uid == user_id,
             )
             for i, (uid, xp) in enumerate(entradas)
         ],
