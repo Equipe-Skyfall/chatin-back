@@ -39,6 +39,11 @@ def test_chamada_de_ia_numa_rota_sincrona_e_atribuida_ao_usuario_logado(
     assert [r.user_id for r in consumo_registros] == ["aluno-7"]
 
 
+class _PerfilRepo:
+    def nomes_por_ids(self, ids):
+        return {"aluno-7": "Ana Souza"} if "aluno-7" in ids else {}
+
+
 class _RepoConsumo:
     def totais(self, desde):
         return 10, 2, 1500, 800
@@ -55,14 +60,17 @@ def test_admin_ve_o_consumo_agregado(monkeypatch):
     from app.deps import require_admin
     from app.main import app
     from app.repositories.ia_consumo_repository import get_ia_consumo_repository
+    from app.repositories.perfil_repository import get_perfil_repository
 
     app.dependency_overrides[require_admin] = lambda: "admin-1"
     app.dependency_overrides[get_ia_consumo_repository] = lambda: _RepoConsumo()
+    app.dependency_overrides[get_perfil_repository] = lambda: _PerfilRepo()
     try:
         resposta = TestClient(app).get("/ia/consumo?dias=7")
     finally:
         app.dependency_overrides.pop(require_admin, None)
         app.dependency_overrides.pop(get_ia_consumo_repository, None)
+        app.dependency_overrides.pop(get_perfil_repository, None)
         get_settings.cache_clear()
 
     assert resposta.status_code == 200
@@ -70,8 +78,16 @@ def test_admin_ve_o_consumo_agregado(monkeypatch):
     assert (corpo["periodo_dias"], corpo["chamadas"], corpo["falhas"]) == (7, 10, 2)
     assert (corpo["tokens_entrada"], corpo["tokens_saida"]) == (1500, 800)
     assert corpo["por_operacao"][0]["chave"] == "conversar_com_agente"
+    assert corpo["por_operacao"][0]["rotulo"] is None
     assert corpo["por_usuario"] == [
-        {"chave": "aluno-7", "chamadas": 6, "falhas": 1, "tokens_entrada": 900, "tokens_saida": 500}
+        {
+            "chave": "aluno-7",
+            "rotulo": "Ana Souza",
+            "chamadas": 6,
+            "falhas": 1,
+            "tokens_entrada": 900,
+            "tokens_saida": 500,
+        }
     ]
 
 
