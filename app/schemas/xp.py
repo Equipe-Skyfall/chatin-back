@@ -11,6 +11,7 @@ class XpPorMateriaOut(BaseModel):
 
 class MeuXpOut(BaseModel):
     xp_total: int
+    streak_atual: int
     nivel: int
     xp_proximo_nivel: int
     xp_faltando_proximo_nivel: int
@@ -18,17 +19,19 @@ class MeuXpOut(BaseModel):
 
 
 class RankingEntradaOut(BaseModel):
-    """One ranking line. Only the apelido identifies a student - never the
-    real name or the user id; `eu` marks the caller's own line."""
+    """What the ranking shows of a student: their apelido (`nome`) and XP, nothing that
+    identifies them elsewhere (no user id, no e-mail). `voce` marks the
+    authenticated student's own entry."""
 
     posicao: int
-    apelido: str
+    nome: str
     xp: int
-    eu: bool = False
+    voce: bool
 
 
 class RankingOut(BaseModel):
     entradas: list[RankingEntradaOut]
-    # The caller's own line, also when they fall outside `entradas` (`None`
-    # while they have no XP in this ranking).
-    minha_posicao: RankingEntradaOut | None = None
+    # The authenticated student's own place, also when it is outside `entradas`.
+    # Null when they have no XP in this ranking yet.
+    minha_posicao: int | None
+    meu_xp: int

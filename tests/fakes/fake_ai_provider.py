@@ -17,6 +17,7 @@ from app.ai.schemas import (
     ResultadoBuscaWeb,
     ResumoEstudoGerado,
 )
+from app.core.exceptions import ProvedorIAIndisponivelException
 
 
 class FakeAIProvider(AIProvider):
@@ -45,6 +46,9 @@ class FakeAIProvider(AIProvider):
         self.ctx_recebido: FerramentaContexto | None = None
         self.conversar_com_agente_aluno_calls = 0
         self.resumir_conversa_calls = 0
+        self.resumos_aluno_recebidos: list[str | None] = []
+        self.resumir_historico_aluno_calls: list[tuple[str | None, list[MensagemAgente]]] = []
+        self.falhar_resumir_historico_aluno = False
         self.conteudos_modulo_recebidos: list[str | None] = []
         self.historicos_recebidos: list[list[MensagemAgente]] = []
         self.falhar_conversar_com_agente_aluno = False
@@ -185,8 +189,10 @@ class FakeAIProvider(AIProvider):
         mensagens: list[MensagemAgente],
         conteudo_modulo: str | None,
         ctx: FerramentaContexto,
+        resumo_aluno: str | None = None,
     ) -> str:
         self.conversar_com_agente_aluno_calls += 1
+        self.resumos_aluno_recebidos.append(resumo_aluno)
         self.conteudos_modulo_recebidos.append(conteudo_modulo)
         self.historicos_recebidos.append(list(mensagens))
         self.ctx_recebido = ctx
@@ -212,6 +218,14 @@ class FakeAIProvider(AIProvider):
         if self.falhar_normalizar_titulo:
             raise RuntimeError("falha simulada ao normalizar título")
         return self.titulo_normalizado_fixo or titulo.strip()
+
+    def resumir_historico_aluno(
+        self, resumo_anterior: str | None, mensagens: list[MensagemAgente]
+    ) -> str:
+        self.resumir_historico_aluno_calls.append((resumo_anterior, list(mensagens)))
+        if self.falhar_resumir_historico_aluno:
+            raise ProvedorIAIndisponivelException("falha simulada ao resumir o histórico")
+        return f"Resumo do aluno ({len(self.resumir_historico_aluno_calls)})"
 
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         self.resumir_conversa_calls += 1

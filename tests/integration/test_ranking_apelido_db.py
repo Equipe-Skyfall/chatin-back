@@ -37,13 +37,13 @@ def test_posicao_global_segue_a_ordem_do_ranking_inclusive_nos_empates(db_sessio
         ("rk-d", 70),
         ("rk-c", 50),
     ]
-    assert [repo.posicao_por_materia(u, materia.id) for u in ("rk-a", "rk-b", "rk-d", "rk-c")] == [
+    assert [repo.posicao_por_materia(materia.id, u) for u in ("rk-a", "rk-b", "rk-d", "rk-c")] == [
         (1, 100),
         (2, 100),
         (3, 70),
         (4, 50),
     ]
-    assert repo.posicao_por_materia("rk-sem-xp", materia.id) is None
+    assert repo.posicao_por_materia(materia.id, "rk-sem-xp") is None
 
 
 def test_apelido_e_unico_sem_diferenciar_maiusculas_e_nao_vaza_para_outros(db_session):

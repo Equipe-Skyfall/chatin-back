@@ -35,6 +35,7 @@ from app.ai.prompts import (
     prompt_normalizar_titulo_trilha,
     prompt_planejar_modulos,
     prompt_resumir_conversa,
+    prompt_resumir_historico_aluno,
     prompt_resumo_estudo,
 )
 from app.ai.schemas import (
@@ -344,6 +345,7 @@ class GeminiProvider(AIProvider):
         mensagens: list[MensagemAgente],
         conteudo_modulo: str | None,
         ctx: FerramentaContexto,
+        resumo_aluno: str | None = None,
     ) -> str:
         """Same tool-calling loop as `conversar_com_ferramentas`, just a
         different (much smaller, non-destructive) tool set and system
@@ -355,7 +357,7 @@ class GeminiProvider(AIProvider):
             mensagens,
             ctx,
             TOOLS_ALUNO,
-            prompt_agente_aluno_system(conteudo_modulo),
+            prompt_agente_aluno_system(conteudo_modulo, resumo_aluno),
             executar_ferramenta_aluno,
         )
 
@@ -518,15 +520,22 @@ class GeminiProvider(AIProvider):
         return texto if texto and "\n" not in texto and len(texto) <= 200 else titulo.strip()
 
     @_retry_transient
+    def resumir_historico_aluno(
+        self, resumo_anterior: str | None, mensagens: list[MensagemAgente]
+    ) -> str:
+        return self._resumir(mensagens, prompt_resumir_historico_aluno(resumo_anterior))
+
+    @_retry_transient
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
+        return self._resumir(mensagens, prompt_resumir_conversa())
+
+    def _resumir(self, mensagens: list[MensagemAgente], instrucao: str) -> str:
         contents = [self._para_content(m) for m in mensagens]
         # The instruction is the last user message, not a system instruction: with
         # the conversation as the content, the model otherwise carries it on
         # (answering "obrigado" with "de nada") or returns nothing, instead of
         # summarizing it.
-        contents.append(
-            types.Content(role="user", parts=[types.Part.from_text(text=prompt_resumir_conversa())])
-        )
+        contents.append(types.Content(role="user", parts=[types.Part.from_text(text=instrucao)]))
         try:
             response = self._gerar_conteudo(
                 model=self._settings.GEMINI_MODEL_PROFESSOR,

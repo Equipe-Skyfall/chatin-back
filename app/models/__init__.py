@@ -9,7 +9,9 @@ from app.models.perfil import PerfilUsuario
 from app.models.progresso import ProgressoUsuario
 from app.models.questao import Questao
 from app.models.questionario import Questionario
+from app.models.resumo_aluno import ResumoAluno
 from app.models.resumo_estudo import ResumoEstudo
+from app.models.streak import StreakUsuario
 from app.models.tema import Tema
 from app.models.tentativa import (
     RespostaTentativa,
@@ -37,8 +39,10 @@ __all__ = [
     "XpEvento",
     "PerfilUsuario",
     "VotoMateria",
+    "ResumoAluno",
     "ResumoEstudo",
     "IaConsumo",
     "LicaoIniciada",
     "TrilhaEstudando",
+    "StreakUsuario",
 ]

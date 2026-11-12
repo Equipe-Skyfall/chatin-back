@@ -45,4 +45,9 @@ class ProgressoMateriaOut(BaseModel):
 
 
 class ProgressoOut(BaseModel):
+    """`media_acerto` is the hit rate (0-100) over every answer in the student's
+    completed quizzes, `None` while they have answered nothing."""
+
     materias: list[ProgressoMateriaOut]
+    media_acerto: float | None = None
+    total_respostas: int = 0

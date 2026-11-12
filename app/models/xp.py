@@ -9,7 +9,8 @@ from app.models._mixins import CreatedAtMixin, UUIDPrimaryKeyMixin
 
 MOTIVO_PRIMEIRA_TENTATIVA = "primeira_tentativa"
 MOTIVO_MELHORIA_NOTA = "melhoria_de_nota"
-MOTIVOS_VALIDOS = (MOTIVO_PRIMEIRA_TENTATIVA, MOTIVO_MELHORIA_NOTA)
+MOTIVO_STREAK_DIARIO = "streak_diario"
+MOTIVOS_VALIDOS = (MOTIVO_PRIMEIRA_TENTATIVA, MOTIVO_MELHORIA_NOTA, MOTIVO_STREAK_DIARIO)
 
 
 class XpEvento(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -25,10 +26,12 @@ class XpEvento(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     # From the external auth service's JWT `userId` claim - a Prisma cuid()
     # string, not a UUID.
     user_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    materia_id: Mapped[uuid.UUID] = mapped_column(
+    # Null for XP that belongs to no matéria (the daily streak): it counts in the
+    # global total and ranking, never in a per-matéria one.
+    materia_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("materias.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     modulo_id: Mapped[uuid.UUID | None] = mapped_column(

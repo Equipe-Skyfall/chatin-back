@@ -2,7 +2,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 
 from app.db.session import DbSession
 from app.models.xp import XpEvento
@@ -24,52 +24,54 @@ class XpRepository(SqlAlchemyRepository[XpEvento]):
         )
         return self.db.execute(stmt).scalar_one()
 
+    # Ties on XP are broken by user id, so the order - and with it every
+    # position - is the same on every call.
+
     def ranking_global(self, limit: int = 20) -> list[tuple[str, int]]:
-        return self._ranking(None, limit)
+        return self._ranking(self._totais(), limit)
 
     def ranking_por_materia(self, materia_id: uuid.UUID, limit: int = 20) -> list[tuple[str, int]]:
-        return self._ranking(materia_id, limit)
+        return self._ranking(self._totais(materia_id), limit)
 
     def posicao_global(self, user_id: str) -> tuple[int, int] | None:
-        return self._posicao(user_id, None)
+        return self._posicao(self._totais(), user_id)
 
-    def posicao_por_materia(self, user_id: str, materia_id: uuid.UUID) -> tuple[int, int] | None:
-        return self._posicao(user_id, materia_id)
+    def posicao_por_materia(self, materia_id: uuid.UUID, user_id: str) -> tuple[int, int] | None:
+        return self._posicao(self._totais(materia_id), user_id)
 
-    def _totais(self, materia_id: uuid.UUID | None):
-        stmt = select(XpEvento.user_id, func.sum(XpEvento.quantidade).label("total")).group_by(
-            XpEvento.user_id
-        )
+    @staticmethod
+    def _totais(materia_id: uuid.UUID | None = None):
+        stmt = select(XpEvento.user_id.label("uid"), func.sum(XpEvento.quantidade).label("total"))
         if materia_id is not None:
             stmt = stmt.where(XpEvento.materia_id == materia_id)
-        return stmt
+        return stmt.group_by(XpEvento.user_id).subquery()
 
-    def _ranking(self, materia_id: uuid.UUID | None, limit: int) -> list[tuple[str, int]]:
-        """Highest XP first; ties break by user_id so the order (and the
-        positions `_posicao` reports) never changes between two requests."""
+    def _ranking(self, totais, limit: int) -> list[tuple[str, int]]:
         stmt = (
-            self._totais(materia_id)
-            .order_by(func.sum(XpEvento.quantidade).desc(), XpEvento.user_id)
+            select(totais.c.uid, totais.c.total)
+            .order_by(totais.c.total.desc(), totais.c.uid)
             .limit(limit)
         )
-        return [(row.user_id, row.total) for row in self.db.execute(stmt)]
+        return [(row.uid, row.total) for row in self.db.execute(stmt)]
 
-    def _posicao(self, user_id: str, materia_id: uuid.UUID | None) -> tuple[int, int] | None:
-        """(1-based position, XP) of one student under the same ordering as
-        `_ranking`, or `None` when they have no XP there yet."""
-        totais = self._totais(materia_id).subquery()
-        meu_total = self.db.execute(
-            select(totais.c.total).where(totais.c.user_id == user_id)
+    def _posicao(self, totais, user_id: str) -> tuple[int, int] | None:
+        """`(position, xp)` of the user, or None when they have no XP there."""
+        meu = self.db.execute(
+            select(totais.c.total).where(totais.c.uid == user_id)
         ).scalar_one_or_none()
-        if meu_total is None:
+        if meu is None:
             return None
         na_frente = self.db.execute(
-            select(func.count()).where(
-                (totais.c.total > meu_total)
-                | ((totais.c.total == meu_total) & (totais.c.user_id < user_id))
+            select(func.count())
+            .select_from(totais)
+            .where(
+                or_(
+                    totais.c.total > meu,
+                    and_(totais.c.total == meu, totais.c.uid < user_id),
+                )
             )
         ).scalar_one()
-        return na_frente + 1, int(meu_total)
+        return na_frente + 1, meu
 
 
 def get_xp_repository(db: DbSession) -> XpRepository:

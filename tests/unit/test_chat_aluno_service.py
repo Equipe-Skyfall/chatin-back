@@ -9,7 +9,11 @@ from app.core.exceptions import ConversaOcupadaException, ProvedorIAIndisponivel
 from app.models.conversa import PAPEL_ASSISTENTE, PAPEL_USUARIO, TIPO_ALUNO, Conversa, Mensagem
 from app.services import chat_aluno_service
 from tests.builders.modulo_builder import ModuloBuilder
-from tests.fakes.in_memory_repositories import InMemoryConversaRepository, InMemoryModuloRepository
+from tests.fakes.in_memory_repositories import (
+    InMemoryConversaRepository,
+    InMemoryModuloRepository,
+    InMemoryResumoAlunoRepository,
+)
 
 
 def _conversa(modulo_id=None, n_mensagens: int = 0) -> Conversa:
@@ -395,3 +399,176 @@ def test_enviar_licao_com_ia_fora_do_ar_marca_a_ia_indisponivel(fake_ai_provider
 
     assert not status_ia.disponivel()
     assert not licao_repo.existe("user-1", modulo.id)
+
+
+# --- the student's running summary (`ResumoAluno`) ---------------------------
+
+
+def _enviar(conversa, conversa_repo, fake_ai_provider, resumo_repo, texto="oi", **kw):
+    return chat_aluno_service.enviar_mensagem(
+        conversa,
+        texto,
+        conversa_repo,
+        InMemoryModuloRepository(),
+        fake_ai_provider,
+        _ctx(conversa.id),
+        20,
+        resumo_repo=resumo_repo,
+        janela_com_resumo=kw.get("janela_com_resumo", 4),
+        resumo_a_cada=kw.get("resumo_a_cada", 6),
+    )
+
+
+def test_sem_resumo_usa_a_janela_normal_e_nao_manda_resumo(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=10)
+    conversa_repo.add(conversa)
+
+    _enviar(conversa, conversa_repo, fake_ai_provider, InMemoryResumoAlunoRepository())
+
+    assert fake_ai_provider.resumos_aluno_recebidos == [None]
+    assert len(fake_ai_provider.historicos_recebidos[0]) == 11  # all 10 + the new question
+
+
+def test_com_resumo_envia_o_resumo_e_so_as_mensagens_recentes(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=10)
+    conversa_repo.add(conversa)
+    resumo_repo = InMemoryResumoAlunoRepository()
+    resumo_repo.salvar("user-1", "O aluno estuda logaritmos.", {str(conversa.id): 10})
+
+    _enviar(conversa, conversa_repo, fake_ai_provider, resumo_repo)
+
+    assert fake_ai_provider.resumos_aluno_recebidos == ["O aluno estuda logaritmos."]
+    historico = fake_ai_provider.historicos_recebidos[0]
+    assert len(historico) == 4
+    assert historico[-1].conteudo == "oi"
+
+
+def test_resumo_de_outro_aluno_nao_e_usado(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa()
+    conversa_repo.add(conversa)
+    resumo_repo = InMemoryResumoAlunoRepository()
+    resumo_repo.salvar("outro-aluno", "Segredo do outro aluno.", {})
+
+    _enviar(conversa, conversa_repo, fake_ai_provider, resumo_repo)
+
+    assert fake_ai_provider.resumos_aluno_recebidos == [None]
+
+
+def test_nao_atualiza_o_resumo_antes_de_juntar_mensagens_suficientes(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa()
+    conversa_repo.add(conversa)
+    resumo_repo = InMemoryResumoAlunoRepository()
+
+    _enviar(conversa, conversa_repo, fake_ai_provider, resumo_repo)  # 2 messages < 6
+
+    assert fake_ai_provider.resumir_historico_aluno_calls == []
+    assert resumo_repo.get_by_user("user-1") is None
+
+
+def test_atualiza_o_resumo_ao_juntar_mensagens_suficientes(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=4)
+    conversa_repo.add(conversa)
+    resumo_repo = InMemoryResumoAlunoRepository()
+
+    _enviar(conversa, conversa_repo, fake_ai_provider, resumo_repo)  # 4 + 2 = 6
+
+    anterior, enviadas = fake_ai_provider.resumir_historico_aluno_calls[0]
+    assert anterior is None
+    assert len(enviadas) == 6
+    salvo = resumo_repo.get_by_user("user-1")
+    assert salvo.resumo == "Resumo do aluno (1)"
+    assert salvo.mensagens_resumidas == {str(conversa.id): 6}
+
+
+def test_atualizacao_manda_so_o_que_o_resumo_ainda_nao_cobre(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=10)
+    conversa_repo.add(conversa)
+    resumo_repo = InMemoryResumoAlunoRepository()
+    resumo_repo.salvar("user-1", "Resumo antigo.", {str(conversa.id): 4})
+
+    _enviar(conversa, conversa_repo, fake_ai_provider, resumo_repo)  # 12 - 4 = 8 new
+
+    anterior, enviadas = fake_ai_provider.resumir_historico_aluno_calls[0]
+    assert anterior == "Resumo antigo."
+    assert [m.conteudo for m in enviadas][0] == "mensagem 4"
+    assert resumo_repo.get_by_user("user-1").mensagens_resumidas == {str(conversa.id): 12}
+
+
+def test_resumo_cobre_conversas_diferentes_sem_perder_o_progresso_de_cada_uma(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    outra = _conversa(n_mensagens=4)
+    atual = _conversa(n_mensagens=4)
+    conversa_repo.add(outra)
+    conversa_repo.add(atual)
+    resumo_repo = InMemoryResumoAlunoRepository()
+    resumo_repo.salvar("user-1", "Resumo.", {str(outra.id): 4})
+
+    _enviar(atual, conversa_repo, fake_ai_provider, resumo_repo)
+
+    assert resumo_repo.get_by_user("user-1").mensagens_resumidas == {
+        str(outra.id): 4,
+        str(atual.id): 6,
+    }
+
+
+def test_falha_ao_atualizar_o_resumo_mantem_o_anterior_e_nao_quebra_o_chat(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=10)
+    conversa_repo.add(conversa)
+    resumo_repo = InMemoryResumoAlunoRepository()
+    resumo_repo.salvar("user-1", "Resumo antigo.", {str(conversa.id): 4})
+    fake_ai_provider.falhar_resumir_historico_aluno = True
+
+    resposta = _enviar(conversa, conversa_repo, fake_ai_provider, resumo_repo)
+
+    assert resposta  # the chat answered anyway
+    salvo = resumo_repo.get_by_user("user-1")
+    assert salvo.resumo == "Resumo antigo."
+    assert salvo.mensagens_resumidas == {str(conversa.id): 4}  # retried next turn
+
+
+def test_atalho_nao_atualiza_o_resumo(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=10)
+    conversa_repo.add(conversa)
+    resumo_repo = InMemoryResumoAlunoRepository()
+
+    chat_aluno_service.enviar_mensagem(
+        conversa,
+        "como estou indo?",
+        conversa_repo,
+        InMemoryModuloRepository(),
+        fake_ai_provider,
+        _ctx(conversa.id),
+        20,
+        resposta_pronta="Você está indo bem.",
+        resumo_repo=resumo_repo,
+        resumo_a_cada=2,
+    )
+
+    assert fake_ai_provider.resumir_historico_aluno_calls == []
+    assert fake_ai_provider.conversar_com_agente_aluno_calls == 0
+
+
+def test_atualizar_resumo_ignora_conversa_de_outro_aluno(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=10)
+    conversa_repo.add(conversa)
+
+    atualizado = chat_aluno_service.atualizar_resumo_aluno(
+        "outro-aluno",
+        conversa.id,
+        conversa_repo,
+        InMemoryResumoAlunoRepository(),
+        fake_ai_provider,
+        2,
+    )
+
+    assert atualizado is False
+    assert fake_ai_provider.resumir_historico_aluno_calls == []

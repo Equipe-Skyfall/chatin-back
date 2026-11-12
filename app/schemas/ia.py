@@ -14,6 +14,9 @@ class IAStatusOut(BaseModel):
 class ConsumoItemOut(BaseModel):
     # `operacao` for the per-operation breakdown, `user_id` for the per-user one.
     chave: str
+    # Human-readable name for `chave` when there is one (the student's name in
+    # the per-user breakdown); `None` otherwise.
+    rotulo: str | None = None
     chamadas: int
     falhas: int
     tokens_entrada: int

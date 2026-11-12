@@ -27,12 +27,15 @@ from app.repositories.modulo_repository import ModuloRepo
 from app.repositories.perfil_repository import PerfilRepo
 from app.repositories.progresso_repository import ProgressoRepo
 from app.repositories.questionario_repository import QuestionarioRepo
+from app.repositories.resumo_aluno_repository import ResumoAlunoRepo
 from app.repositories.resumo_estudo_repository import ResumoEstudoRepo
+from app.repositories.streak_repository import StreakRepo
 from app.repositories.tema_repository import TemaRepo
 from app.repositories.tentativa_repository import TentativaRepo
 from app.repositories.trilha_estudando_repository import TrilhaEstudandoRepo
 from app.repositories.voto_repository import VotoRepo
 from app.repositories.xp_repository import XpRepo
+from app.services import streak_service
 
 __all__ = [
     "SettingsDep",
@@ -50,6 +53,8 @@ __all__ = [
     "ConversaRepo",
     "XpRepo",
     "PerfilRepo",
+    "ResumoAlunoRepo",
+    "StreakRepo",
     "VotoRepo",
     "ResumoEstudoRepo",
     "IaConsumoRepo",
@@ -86,8 +91,15 @@ def _sincronizar_perfil(payload: TokenPayload, perfil_repo: PerfilRepo) -> None:
         perfil_repo.upsert(payload.user_id, payload.username, payload.email)
 
 
-def get_current_user_id(payload: TokenPayloadDep, perfil_repo: PerfilRepo) -> str:
+def get_current_user_id(
+    payload: TokenPayloadDep,
+    perfil_repo: PerfilRepo,
+    streak_repo: StreakRepo,
+    xp_repo: XpRepo,
+) -> str:
     _sincronizar_perfil(payload, perfil_repo)
+    # Showing up counts for the daily streak (and its XP) - see `streak_service`.
+    streak_service.registrar_acesso_diario(payload.user_id, streak_repo, xp_repo)
     return payload.user_id
 
 
