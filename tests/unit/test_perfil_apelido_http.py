@@ -61,7 +61,7 @@ def test_apelido_em_uso_responde_409_com_codigo(api):
     assert resposta.json()["code"] == "apelido_em_uso"
 
 
-@pytest.mark.parametrize("apelido", ["ab", "x" * 21, "ana@gmail.com", "   ", "a/b/c"])
+@pytest.mark.parametrize("apelido", ["ab", "x" * 21, "ana@gmail.com", "   ", "a/b/c", "Aluno K3F9", "aluno 0001"])
 def test_apelido_invalido_responde_422(api, apelido):
     client, repo = api
 
