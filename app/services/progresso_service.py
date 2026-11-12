@@ -186,7 +186,13 @@ def montar_progresso(
             )
         )
 
-    return ProgressoOut(materias=materias_out)
+    corretas = sum(c for c, _ in desempenho_por_tema.values())
+    total = sum(t for _, t in desempenho_por_tema.values())
+    return ProgressoOut(
+        materias=materias_out,
+        media_acerto=dificuldade_service.taxa_acerto(corretas, total) if total else None,
+        total_respostas=total,
+    )
 
 
 def estado_tema(
