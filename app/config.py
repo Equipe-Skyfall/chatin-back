@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     # Duplicate-trilha check (Word2Vec + cosine). Without a model file the check
     # is skipped and creation proceeds as before (RNF6).
     W2V_MODEL_PATH: str | None = None
-    W2V_VOCAB_LIMIT: int = 200_000
+    W2V_VOCAB_LIMIT: int = 100_000
     # Cosine similarity at or above this = same trilha (reuse it); between the two = similar.
     TRILHA_SIMILARIDADE_IGUAL: float = 0.95
     TRILHA_SIMILARIDADE_PARECIDA: float = 0.70
