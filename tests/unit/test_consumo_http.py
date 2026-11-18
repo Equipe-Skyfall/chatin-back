@@ -1,6 +1,6 @@
 """RNF7 over HTTP: whose call it is, and what the admin sees."""
 
-from fastapi import FastAPI
+from fastapi import BackgroundTasks, FastAPI
 from fastapi.testclient import TestClient
 
 from app.ai import consumo
@@ -37,6 +37,34 @@ def test_chamada_de_ia_numa_rota_sincrona_e_atribuida_ao_usuario_logado(
         get_settings.cache_clear()
 
     assert [r.user_id for r in consumo_registros] == ["aluno-7"]
+
+
+def test_chamada_de_ia_em_background_continua_atribuida_ao_usuario(monkeypatch, consumo_registros):
+    # The per-student summary refresh runs after the response, in a background
+    # task: its usage must still be billed to the student who triggered it.
+    get_settings = _env(monkeypatch)
+    from app.deps import CurrentUserId, get_current_user_id
+
+    app = FastAPI()
+
+    def atualizar_resumo() -> None:
+        with consumo.medir("resumir_historico_aluno"):
+            pass
+
+    @app.post("/x")
+    def rota(user_id: CurrentUserId, background_tasks: BackgroundTasks) -> dict:
+        background_tasks.add_task(atualizar_resumo)
+        return {}
+
+    app.dependency_overrides[get_current_user_id] = lambda: "aluno-7"
+    try:
+        assert TestClient(app).post("/x").status_code == 200
+    finally:
+        get_settings.cache_clear()
+
+    assert [(r.operacao, r.user_id) for r in consumo_registros] == [
+        ("resumir_historico_aluno", "aluno-7")
+    ]
 
 
 class _PerfilRepo:
