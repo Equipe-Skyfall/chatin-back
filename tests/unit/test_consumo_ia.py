@@ -108,3 +108,73 @@ def test_tokens_somados_no_loop_em_outra_thread_chegam_na_medicao(consumo_regist
         loop.call_soon_threadsafe(loop.stop)
 
     assert (consumo_registros[0].tokens_entrada, consumo_registros[0].tokens_saida) == (4, 2)
+
+
+def test_gravador_do_banco_persiste_data_tokens_usuario_e_origem(monkeypatch):
+    # The default recorder maps a `RegistroConsumo` onto the `ia_consumo` row; a
+    # field renamed on one side only would otherwise surface just in production,
+    # where `registrar` swallows the error.
+    from app.db import session
+    from app.models.ia_consumo import IaConsumo
+
+    class Sessao:
+        def __init__(self):
+            self.adicionados, self.commits, self.fechada = [], 0, False
+
+        def add(self, obj):
+            self.adicionados.append(obj)
+
+        def commit(self):
+            self.commits += 1
+
+        def close(self):
+            self.fechada = True
+
+    sessao = Sessao()
+    monkeypatch.setattr(session, "nova_sessao", lambda: sessao)
+    consumo.definir_gravador(None)
+    registro = consumo.RegistroConsumo(
+        user_id="u1",
+        operacao="gerar_questionario",
+        modelo="gemini-x",
+        sucesso=True,
+        tipo_falha=None,
+        tokens_entrada=13,
+        tokens_saida=7,
+        chamadas_modelo=2,
+        duracao_ms=120,
+    )
+
+    consumo.registrar(registro)
+
+    (linha,) = sessao.adicionados
+    assert isinstance(linha, IaConsumo)
+    assert (linha.user_id, linha.operacao, linha.tokens_entrada, linha.tokens_saida) == (
+        "u1",
+        "gerar_questionario",
+        13,
+        7,
+    )
+    assert sessao.commits == 1 and sessao.fechada
+    # The timestamp is filled by the table itself (`CreatedAtMixin`).
+    assert IaConsumo.__table__.c.created_at.server_default is not None
+
+
+def test_tabela_ausente_no_gravador_do_banco_nao_derruba_a_chamada(monkeypatch):
+    from app.db import session
+
+    class Sessao:
+        def add(self, obj):
+            pass
+
+        def commit(self):
+            raise RuntimeError('relation "ia_consumo" does not exist')
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(session, "nova_sessao", lambda: Sessao())
+    consumo.definir_gravador(None)
+
+    with consumo.medir("x"):
+        pass  # must not raise
