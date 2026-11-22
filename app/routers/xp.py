@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.core.exceptions import MateriaNaoEncontradaException
 from app.deps import CurrentUserId, MateriaRepo, PerfilRepo, StreakRepo, XpRepo
@@ -60,7 +60,10 @@ def _montar_ranking(
 
 @router.get("/ranking", response_model=RankingOut)
 def ranking_global(
-    user_id: CurrentUserId, xp_repo: XpRepo, perfil_repo: PerfilRepo, limit: int = 20
+    user_id: CurrentUserId,
+    xp_repo: XpRepo,
+    perfil_repo: PerfilRepo,
+    limit: int = Query(20, ge=1, le=100),
 ) -> RankingOut:
     return _montar_ranking(
         xp_repo.ranking_global(limit), xp_repo.posicao_global(user_id), user_id, perfil_repo
@@ -74,7 +77,7 @@ def ranking_por_materia(
     xp_repo: XpRepo,
     materia_repo: MateriaRepo,
     perfil_repo: PerfilRepo,
-    limit: int = 20,
+    limit: int = Query(20, ge=1, le=100),
 ) -> RankingOut:
     if materia_repo.get(materia_id) is None:
         raise MateriaNaoEncontradaException(materia_id)

@@ -331,6 +331,19 @@ class InMemoryTentativaRepository:
                 resultado[tema_id] = (corretas + int(r.correta), total + 1)
         return resultado
 
+    def acertos_valendo_xp(self, user_id: str) -> tuple[int, int]:
+        """Only module quizzes that are not practice (same filter as the SQL)."""
+        valem = {
+            t.id
+            for t in self.tentativas.values()
+            if t.user_id == user_id
+            and t.status == "concluida"
+            and not t.pratica
+            and t.tema_id is None
+        }
+        respostas = [r for r in self.respostas if r.tentativa_id in valem]
+        return sum(int(r.correta) for r in respostas), len(respostas)
+
     def flush(self) -> None:
         if self.falhar_proximo_flush:
             self.falhar_proximo_flush = False
@@ -422,6 +435,8 @@ class InMemoryTrilhaEstudandoRepository:
 class InMemoryXpRepository:
     def __init__(self):
         self.eventos: list = []
+        # Users flagged `PerfilUsuario.admin`: the SQL leaves them out of rankings.
+        self.admins: set[str] = set()
 
     def add(self, entity) -> None:
         self.eventos.append(entity)
@@ -445,6 +460,8 @@ class InMemoryXpRepository:
     def _totais(self, materia_id=None) -> list[tuple[str, int]]:
         totais: dict[str, int] = {}
         for e in self.eventos:
+            if e.user_id in self.admins:
+                continue
             if materia_id is None or e.materia_id == materia_id:
                 totais[e.user_id] = totais.get(e.user_id, 0) + e.quantidade
         return sorted(totais.items(), key=lambda item: (-item[1], item[0]))

@@ -18,7 +18,7 @@ from app.ai.base import AIProvider
 from app.ai.gemini_provider import GeminiProvider
 from app.config import Settings, get_settings
 from app.core.exceptions import NaoAutenticadoException
-from app.core.security import TokenPayload, decode_token, require_admin_role
+from app.core.security import ADMIN_ROLE, TokenPayload, decode_token, require_admin_role
 from app.repositories.conversa_repository import ConversaRepo
 from app.repositories.ia_consumo_repository import IaConsumoRepo
 from app.repositories.licao_repository import LicaoRepo
@@ -35,7 +35,6 @@ from app.repositories.tentativa_repository import TentativaRepo
 from app.repositories.trilha_estudando_repository import TrilhaEstudandoRepo
 from app.repositories.voto_repository import VotoRepo
 from app.repositories.xp_repository import XpRepo
-from app.services import streak_service
 
 __all__ = [
     "SettingsDep",
@@ -88,18 +87,13 @@ def _sincronizar_perfil(payload: TokenPayload, perfil_repo: PerfilRepo) -> None:
     `PerfilRepository.upsert` for why this is cheap enough to run on every
     request rather than needing a separate sync job."""
     if payload.username or payload.email:
-        perfil_repo.upsert(payload.user_id, payload.username, payload.email)
+        perfil_repo.upsert(
+            payload.user_id, payload.username, payload.email, payload.role == ADMIN_ROLE
+        )
 
 
-def get_current_user_id(
-    payload: TokenPayloadDep,
-    perfil_repo: PerfilRepo,
-    streak_repo: StreakRepo,
-    xp_repo: XpRepo,
-) -> str:
+def get_current_user_id(payload: TokenPayloadDep, perfil_repo: PerfilRepo) -> str:
     _sincronizar_perfil(payload, perfil_repo)
-    # Showing up counts for the daily streak (and its XP) - see `streak_service`.
-    streak_service.registrar_acesso_diario(payload.user_id, streak_repo, xp_repo)
     return payload.user_id
 
 

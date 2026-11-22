@@ -1,9 +1,10 @@
 """Daily-access streak and the XP it earns.
 
 A student's streak is the number of consecutive days (America/Sao_Paulo) they
-used the app. Any authenticated request counts as showing up (see
-`app.deps.get_current_user_id`); missing a whole day loses the streak and the
-next visit starts again at 1.
+studied: a day counts once the student has completed at least one quiz attempt
+(see `app.routers.tentativas.responder_tentativa`). Merely opening the app does
+not. Missing a whole day loses the streak and the next study day starts again
+at 1.
 
 XP: every day that extends the streak (the 2nd consecutive day onward) earns
 XP_STREAK_DIA, and every 7th day in a row earns XP_STREAK_SEMANA on top. The
@@ -47,15 +48,15 @@ def sequencia_atual(registro: StreakUsuario | None, dia: date) -> int:
     return registro.sequencia
 
 
-def registrar_acesso_diario(
+def registrar_dia_de_estudo(
     user_id: str,
     streak_repo: StreakRepository,
     xp_repo: XpRepository,
     dia: date | None = None,
 ) -> None:
-    """Counts today for the student and grants the day's XP. Best effort: this
-    rides on every authenticated request, so a failure (e.g. the migration not
-    applied yet) is logged and swallowed - it must never take the request down."""
+    """Counts today for the student and grants the day's XP. Best effort: it
+    rides on grading a quiz, so a failure (e.g. the migration not applied yet)
+    is logged and swallowed - it must never take the grading down."""
     dia = dia or hoje()
     try:
         sequencia = streak_repo.registrar_dia(user_id, dia)

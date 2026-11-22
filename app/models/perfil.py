@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, String, func
+from sqlalchemy import Boolean, DateTime, Index, String, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -25,6 +25,9 @@ class PerfilUsuario(Base):
     # Chosen by the student (`PATCH /perfil/apelido`); the only identity the
     # ranking shows. Never touched by the JWT upsert.
     apelido: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Mirrors the JWT `role` (refreshed with every request): admins are kept out
+    # of the rankings, which are for students.
+    admin: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

@@ -20,6 +20,7 @@ from app.deps import (
     ProgressoRepo,
     QuestionarioRepo,
     SettingsDep,
+    StreakRepo,
     TemaRepo,
     TentativaRepo,
     TrilhaEstudandoRepo,
@@ -35,6 +36,7 @@ from app.services import (
     feedback_tentativa_service,
     grading_service,
     questionario_personalizado_service,
+    streak_service,
 )
 from app.services.progresso_service import (
     atualizar_progresso,
@@ -233,6 +235,7 @@ def responder_tentativa(
     modulo_repo: ModuloRepo,
     tema_repo: TemaRepo,
     xp_repo: XpRepo,
+    streak_repo: StreakRepo,
     ai_provider: AiProviderDep,
     settings: SettingsDep,
 ) -> TentativaResultadoOut:
@@ -268,6 +271,9 @@ def responder_tentativa(
         tentativa_repo.definir_feedback(tentativa, feedback.texto)
         tentativa_repo.commit()
     # a tema-scoped (review) or `pratica` attempt is practice only - no progress/XP change
+
+    # Finishing a quiz - practice included - is what counts as studying today.
+    streak_service.registrar_dia_de_estudo(user_id, streak_repo, xp_repo)
 
     # Every completed attempt counts toward the tema's performance level,
     # practice included (it's answers, not progress).
@@ -321,5 +327,9 @@ def obter_progresso(
     progresso_rows = progresso_repo.list_by_user_and_modulos(user_id, modulo_ids)
     xp_por_materia = {m.id: xp_repo.total_por_usuario_e_materia(user_id, m.id) for m in materias}
     return montar_progresso(
-        materias, progresso_rows, xp_por_materia, tentativa_repo.desempenho_por_tema(user_id)
+        materias,
+        progresso_rows,
+        xp_por_materia,
+        tentativa_repo.desempenho_por_tema(user_id),
+        tentativa_repo.acertos_valendo_xp(user_id),
     )

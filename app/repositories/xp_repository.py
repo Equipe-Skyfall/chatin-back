@@ -5,6 +5,7 @@ from fastapi import Depends
 from sqlalchemy import and_, func, or_, select
 
 from app.db.session import DbSession
+from app.models.perfil import PerfilUsuario
 from app.models.xp import XpEvento
 from app.repositories.base import SqlAlchemyRepository
 
@@ -41,7 +42,11 @@ class XpRepository(SqlAlchemyRepository[XpEvento]):
 
     @staticmethod
     def _totais(materia_id: uuid.UUID | None = None):
+        # Rankings are for students: an admin's XP (they can finish quizzes too)
+        # never counts - see `PerfilUsuario.admin`.
+        admins = select(PerfilUsuario.user_id).where(PerfilUsuario.admin.is_(True))
         stmt = select(XpEvento.user_id.label("uid"), func.sum(XpEvento.quantidade).label("total"))
+        stmt = stmt.where(XpEvento.user_id.not_in(admins))
         if materia_id is not None:
             stmt = stmt.where(XpEvento.materia_id == materia_id)
         return stmt.group_by(XpEvento.user_id).subquery()

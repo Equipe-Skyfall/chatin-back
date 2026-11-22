@@ -9,7 +9,7 @@ DIA = date(2026, 11, 2)  # a Monday
 
 
 def _acessar(streak_repo, xp_repo, dia, user="aluno-1"):
-    streak_service.registrar_acesso_diario(user, streak_repo, xp_repo, dia)
+    streak_service.registrar_dia_de_estudo(user, streak_repo, xp_repo, dia)
 
 
 def test_primeiro_dia_inicia_a_sequencia_sem_xp():
@@ -106,7 +106,7 @@ def test_falha_no_banco_nao_derruba_a_requisicao():
     assert xp_repo.eventos == []
 
 
-def test_requisicao_autenticada_conta_o_dia_e_nao_falha_se_o_streak_falhar():
+def test_abrir_o_app_nao_conta_o_dia():
     from app.core.security import TokenPayload
     from app.deps import get_current_user_id
 
@@ -114,11 +114,16 @@ def test_requisicao_autenticada_conta_o_dia_e_nao_falha_se_o_streak_falhar():
         def upsert(self, *args):
             pass
 
-    streak_repo, xp_repo = InMemoryStreakRepository(), InMemoryXpRepository()
     payload = TokenPayload(user_id="aluno-9", role="aluno")
 
-    assert get_current_user_id(payload, _Perfil(), streak_repo, xp_repo) == "aluno-9"
+    assert get_current_user_id(payload, _Perfil()) == "aluno-9"
+    # No streak repository is even involved: only finishing a quiz counts.
+
+
+def test_falha_do_streak_nao_derruba_quem_responde_o_questionario():
+    streak_repo, xp_repo = InMemoryStreakRepository(), InMemoryXpRepository()
+    streak_service.registrar_dia_de_estudo("aluno-9", streak_repo, xp_repo)
     assert streak_repo.get_by_user("aluno-9").sequencia == 1
 
     streak_repo.falhar = True
-    assert get_current_user_id(payload, _Perfil(), streak_repo, xp_repo) == "aluno-9"
+    streak_service.registrar_dia_de_estudo("aluno-9", streak_repo, xp_repo)  # must not raise

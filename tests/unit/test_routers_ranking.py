@@ -165,7 +165,7 @@ def test_ranking_de_materia_inexistente_da_404(api):
 
 def test_xp_do_streak_conta_no_ranking_global(api):
     for dia in range(2):
-        streak_service.registrar_acesso_diario(
+        streak_service.registrar_dia_de_estudo(
             "u1", api.estado.streak, api.estado.xp, streak_service.hoje() + timedelta(days=dia)
         )
 
@@ -184,3 +184,27 @@ def test_meu_xp_mostra_o_streak_atual_e_zera_quando_perdido(api):
         user_id="u3", sequencia=5, ultimo_dia=hoje - timedelta(days=2)
     )
     assert api.client.get("/xp/meu").json()["streak_atual"] == 0
+
+
+@pytest.mark.parametrize("limite", ["0", "-1", "101", "abc"])
+def test_limite_invalido_do_ranking_e_rejeitado_com_422(api, limite):
+    assert api.client.get(f"/ranking?limit={limite}").status_code == 422
+    materia = api.estado.materia_id
+    assert api.client.get(f"/ranking/materias/{materia}?limit={limite}").status_code == 422
+
+
+def test_limite_valido_do_ranking_continua_funcionando(api):
+    _dar_xp(api.estado, "u1", 100)
+    assert api.client.get("/ranking?limit=1").status_code == 200
+    assert api.client.get("/ranking?limit=100").status_code == 200
+
+
+def test_admin_nao_aparece_no_ranking(api):
+    for user, xp in [("u1", 100), ("u2", 900), ("u3", 200)]:
+        _dar_xp(api.estado, user, xp)
+    api.estado.xp.admins.add("u2")
+
+    corpo = api.client.get("/ranking").json()
+
+    assert [e["xp"] for e in corpo["entradas"]] == [200, 100]
+    assert corpo["minha_posicao"] == 1  # u3 moves up once the admin is out

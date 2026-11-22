@@ -14,18 +14,25 @@ from app.repositories.base import SqlAlchemyRepository
 class PerfilRepository(SqlAlchemyRepository[PerfilUsuario]):
     model = PerfilUsuario
 
-    def upsert(self, user_id: str, nome: str | None, email: str | None) -> None:
+    def upsert(
+        self, user_id: str, nome: str | None, email: str | None, admin: bool = False
+    ) -> None:
         """One statement, one round trip: insert on first sight, update only
         when something actually changed (`IS DISTINCT FROM` short-circuits the
         write on Postgres' side for the very common case of an unchanged
         profile) - safe to call on every authenticated request without it
         turning into a write-heavy hot path."""
-        stmt = insert(PerfilUsuario).values(user_id=user_id, nome=nome, email=email)
+        stmt = insert(PerfilUsuario).values(user_id=user_id, nome=nome, email=email, admin=admin)
         stmt = stmt.on_conflict_do_update(
             index_elements=[PerfilUsuario.user_id],
-            set_={"nome": stmt.excluded.nome, "email": stmt.excluded.email},
+            set_={
+                "nome": stmt.excluded.nome,
+                "email": stmt.excluded.email,
+                "admin": stmt.excluded.admin,
+            },
             where=(PerfilUsuario.nome.is_distinct_from(stmt.excluded.nome))
-            | (PerfilUsuario.email.is_distinct_from(stmt.excluded.email)),
+            | (PerfilUsuario.email.is_distinct_from(stmt.excluded.email))
+            | (PerfilUsuario.admin.is_distinct_from(stmt.excluded.admin)),
         )
         self.db.execute(stmt)
         self.db.commit()
