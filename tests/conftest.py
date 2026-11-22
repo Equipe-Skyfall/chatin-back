@@ -1,3 +1,12 @@
+import os
+
+# Importing `app.main` builds the settings, which require these. Dummy values
+# (set before any test module is collected, and never overriding a real one)
+# let the suite run on a clean checkout with no `.env`.
+os.environ.setdefault("SUPABASE_DB_URL", "postgresql+psycopg://u:p@localhost/db")
+os.environ.setdefault("JWT_SECRET", "x" * 32)
+os.environ.setdefault("GEMINI_API_KEY", "dummy")
+
 import pytest
 
 from app.ai import consumo
