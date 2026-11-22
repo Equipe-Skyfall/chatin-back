@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -23,6 +25,15 @@ class ConsumoItemOut(BaseModel):
     tokens_saida: int
 
 
+class ConsumoPeriodoOut(BaseModel):
+    # Start of the hour or day, in Brazilian local time (no offset).
+    inicio: datetime
+    chamadas: int
+    falhas: int
+    tokens_entrada: int
+    tokens_saida: int
+
+
 class IAConsumoOut(BaseModel):
     """AI usage in the last `periodo_dias` days (RNF7). Tokens only count calls
     where the provider reported usage, so they are a lower bound."""
@@ -34,3 +45,5 @@ class IAConsumoOut(BaseModel):
     tokens_saida: int
     por_operacao: list[ConsumoItemOut]
     por_usuario: list[ConsumoItemOut]
+    # Oldest first; hours or days with no calls are left out. Use it to spot peaks.
+    por_periodo: list[ConsumoPeriodoOut]

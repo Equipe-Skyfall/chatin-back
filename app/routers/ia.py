@@ -1,10 +1,11 @@
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Query
 
 from app.ai.disponibilidade import status_ia
 from app.deps import AdminUserId, IaConsumoRepo, PerfilRepo
-from app.schemas.ia import ConsumoItemOut, IAConsumoOut, IAStatusOut
+from app.schemas.ia import ConsumoItemOut, ConsumoPeriodoOut, IAConsumoOut, IAStatusOut
 
 router = APIRouter(tags=["ia"])
 
@@ -40,9 +41,11 @@ def consumo_da_ia(
     repo: IaConsumoRepo,
     perfil_repo: PerfilRepo,
     dias: int = Query(30, ge=1, le=365),
+    granularidade: Literal["hora", "dia"] = "dia",
 ) -> IAConsumoOut:
     """AI usage for the admin (RNF7): calls, failures and, when the provider
-    reported them, tokens - in total, per operation and per user."""
+    reported them, tokens - in total, per operation, per user and per hour or
+    day (`por_periodo`, to spot peaks)."""
     desde = datetime.now(UTC) - timedelta(days=dias)
     chamadas, falhas, entrada, saida = repo.totais(desde)
 
@@ -71,4 +74,8 @@ def consumo_da_ia(
         tokens_saida=saida,
         por_operacao=itens(repo.por_operacao(desde)),
         por_usuario=itens(por_usuario, nomes),
+        por_periodo=[
+            ConsumoPeriodoOut(inicio=inicio, chamadas=c, falhas=f, tokens_entrada=e, tokens_saida=s)
+            for inicio, c, f, e, s in repo.por_periodo(desde, granularidade)
+        ],
     )

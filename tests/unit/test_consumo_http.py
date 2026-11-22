@@ -1,5 +1,7 @@
 """RNF7 over HTTP: whose call it is, and what the admin sees."""
 
+from datetime import datetime
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -54,6 +56,13 @@ class _RepoConsumo:
     def por_usuario(self, desde, limite):
         return [("aluno-7", 6, 1, 900, 500)]
 
+    def por_periodo(self, desde, granularidade):
+        self.granularidade = granularidade
+        return [
+            (datetime(2026, 11, 10), 2, 0, 100, 50),
+            (datetime(2026, 11, 11), 8, 2, 1400, 750),
+        ]
+
 
 def test_admin_ve_o_consumo_agregado(monkeypatch):
     get_settings = _env(monkeypatch)
@@ -89,6 +98,44 @@ def test_admin_ve_o_consumo_agregado(monkeypatch):
             "tokens_saida": 500,
         }
     ]
+    # Oldest first, so a peak shows as the bucket with the most calls.
+    assert [(p["inicio"], p["chamadas"]) for p in corpo["por_periodo"]] == [
+        ("2026-11-10T00:00:00", 2),
+        ("2026-11-11T00:00:00", 8),
+    ]
+
+
+def _consultar(monkeypatch, query: str):
+    get_settings = _env(monkeypatch)
+    from app.deps import require_admin
+    from app.main import app
+    from app.repositories.ia_consumo_repository import get_ia_consumo_repository
+    from app.repositories.perfil_repository import get_perfil_repository
+
+    repo = _RepoConsumo()
+    app.dependency_overrides[require_admin] = lambda: "admin-1"
+    app.dependency_overrides[get_ia_consumo_repository] = lambda: repo
+    app.dependency_overrides[get_perfil_repository] = lambda: _PerfilRepo()
+    try:
+        return TestClient(app).get(f"/ia/consumo{query}"), repo
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
+        app.dependency_overrides.pop(get_ia_consumo_repository, None)
+        app.dependency_overrides.pop(get_perfil_repository, None)
+        get_settings.cache_clear()
+
+
+def test_consumo_por_periodo_e_diario_por_padrao_e_aceita_hora(monkeypatch):
+    resposta, repo = _consultar(monkeypatch, "")
+    assert resposta.status_code == 200 and repo.granularidade == "dia"
+
+    resposta, repo = _consultar(monkeypatch, "?granularidade=hora")
+    assert resposta.status_code == 200 and repo.granularidade == "hora"
+
+
+def test_granularidade_invalida_e_rejeitada(monkeypatch):
+    resposta, _ = _consultar(monkeypatch, "?granularidade=semana")
+    assert resposta.status_code == 422
 
 
 def test_consumo_exige_admin(monkeypatch):

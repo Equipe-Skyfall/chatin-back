@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Depends
 from sqlalchemy import case, func, select
@@ -7,6 +7,8 @@ from sqlalchemy import case, func, select
 from app.db.session import DbSession
 from app.models.ia_consumo import IaConsumo
 from app.repositories.base import SqlAlchemyRepository
+
+FUSO_DO_CONSUMO = "America/Sao_Paulo"
 
 
 class IaConsumoRepository(SqlAlchemyRepository[IaConsumo]):
@@ -48,6 +50,24 @@ class IaConsumoRepository(SqlAlchemyRepository[IaConsumo]):
         )
         return [
             (uid, int(c), int(f), int(e), int(s)) for uid, c, f, e, s in self.db.execute(stmt).all()
+        ]
+
+    def por_periodo(
+        self, desde: datetime, granularidade: Literal["hora", "dia"]
+    ) -> list[tuple[datetime, int, int, int, int]]:
+        """Usage per hour or day, oldest first, in Brazilian local time (the
+        same day boundary the streak uses). Buckets with no calls are absent."""
+        local = func.timezone(FUSO_DO_CONSUMO, IaConsumo.created_at)
+        inicio = func.date_trunc("hour" if granularidade == "hora" else "day", local)
+        stmt = (
+            select(inicio, *self._agregados())
+            .where(IaConsumo.created_at >= desde)
+            .group_by(inicio)
+            .order_by(inicio)
+        )
+        return [
+            (quando, int(c), int(f), int(e), int(s))
+            for quando, c, f, e, s in self.db.execute(stmt).all()
         ]
 
 
