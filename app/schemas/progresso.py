@@ -53,3 +53,6 @@ class ProgressoOut(BaseModel):
     materias: list[ProgressoMateriaOut]
     media_acerto: float | None = None
     total_respostas: int = 0
+    # Times the student opened a study summary in the Biblioteca (US18): a
+    # reopen counts again, a PDF download does not.
+    resumos_revisados: int = 0

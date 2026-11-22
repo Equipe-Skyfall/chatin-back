@@ -586,3 +586,16 @@ class InMemoryStreakRepository:
 
     def rollback(self) -> None:
         self.rollbacks += 1
+
+
+class InMemoryResumoAberturaRepository:
+    """Same contract as `ResumoAberturaRepository`: one row per opening."""
+
+    def __init__(self):
+        self.aberturas: list[tuple[str, uuid.UUID]] = []
+
+    def registrar(self, user_id: str, resumo_id: uuid.UUID) -> None:
+        self.aberturas.append((user_id, resumo_id))
+
+    def total_por_usuario(self, user_id: str) -> int:
+        return sum(1 for uid, _ in self.aberturas if uid == user_id)

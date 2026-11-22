@@ -27,6 +27,7 @@ from app.repositories.modulo_repository import ModuloRepo
 from app.repositories.perfil_repository import PerfilRepo
 from app.repositories.progresso_repository import ProgressoRepo
 from app.repositories.questionario_repository import QuestionarioRepo
+from app.repositories.resumo_abertura_repository import ResumoAberturaRepo
 from app.repositories.resumo_aluno_repository import ResumoAlunoRepo
 from app.repositories.resumo_estudo_repository import ResumoEstudoRepo
 from app.repositories.streak_repository import StreakRepo
@@ -52,6 +53,7 @@ __all__ = [
     "ConversaRepo",
     "XpRepo",
     "PerfilRepo",
+    "ResumoAberturaRepo",
     "ResumoAlunoRepo",
     "StreakRepo",
     "VotoRepo",

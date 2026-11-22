@@ -19,6 +19,7 @@ from tests.fakes.fake_ai_provider import FakeAIProvider
 from tests.fakes.in_memory_repositories import (
     InMemoryProgressoRepository,
     InMemoryQuestionarioRepository,
+    InMemoryResumoAberturaRepository,
     InMemoryStreakRepository,
     InMemoryTentativaRepository,
     InMemoryXpRepository,
@@ -62,6 +63,7 @@ def api(monkeypatch):
     from app.repositories.modulo_repository import get_modulo_repository
     from app.repositories.progresso_repository import get_progresso_repository
     from app.repositories.questionario_repository import get_questionario_repository
+    from app.repositories.resumo_abertura_repository import get_resumo_abertura_repository
     from app.repositories.streak_repository import get_streak_repository
     from app.repositories.tema_repository import get_tema_repository
     from app.repositories.tentativa_repository import get_tentativa_repository
@@ -73,6 +75,7 @@ def api(monkeypatch):
         progresso=InMemoryProgressoRepository(),
         xp=InMemoryXpRepository(),
         streak=InMemoryStreakRepository(),
+        aberturas=InMemoryResumoAberturaRepository(),
         modulo=_Get(),
         tema=_Get(),
     )
@@ -84,6 +87,7 @@ def api(monkeypatch):
         get_progresso_repository: lambda: repos.progresso,
         get_xp_repository: lambda: repos.xp,
         get_streak_repository: lambda: repos.streak,
+        get_resumo_abertura_repository: lambda: repos.aberturas,
         get_materia_repository: lambda: _MateriaRepo(),
         get_modulo_repository: lambda: repos.modulo,
         get_tema_repository: lambda: repos.tema,

@@ -8,6 +8,7 @@ from app.deps import (
     ConversaRepo,
     CurrentUserId,
     ModuloRepo,
+    ResumoAberturaRepo,
     ResumoEstudoRepo,
 )
 from app.models.resumo_estudo import ResumoEstudo
@@ -52,11 +53,17 @@ def listar_resumos(
 
 @router.get("/{resumo_id}", response_model=ResumoEstudoOut)
 def obter_resumo(
-    resumo_id: UUID, user_id: CurrentUserId, resumo_repo: ResumoEstudoRepo
+    resumo_id: UUID,
+    user_id: CurrentUserId,
+    resumo_repo: ResumoEstudoRepo,
+    abertura_repo: ResumoAberturaRepo,
 ) -> ResumoEstudo:
+    """Opening a summary counts as reviewing it (US18): every call records one
+    opening, the same summary again included. The PDF download below does not."""
     resumo = resumo_repo.get(resumo_id)
     if resumo is None or resumo.user_id != user_id:
         raise ResumoEstudoNaoEncontradoException(resumo_id)
+    abertura_repo.registrar(user_id, resumo_id)
     return resumo
 
 
