@@ -572,3 +572,75 @@ def test_atualizar_resumo_ignora_conversa_de_outro_aluno(fake_ai_provider):
 
     assert atualizado is False
     assert fake_ai_provider.resumir_historico_aluno_calls == []
+
+
+def test_resumo_nao_e_atualizado_enquanto_outra_atualizacao_do_mesmo_aluno_roda(fake_ai_provider):
+    # Two refreshes racing would read the same old summary and the last write
+    # would erase the other's stretch: the one that doesn't get the lock steps aside.
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=10)
+    conversa_repo.add(conversa)
+    resumo_repo = InMemoryResumoAlunoRepository()
+    resumo_repo.salvar("user-1", "Resumo antigo.", {str(conversa.id): 4})
+    resumo_repo.bloqueados.add("user-1")
+
+    _enviar(conversa, conversa_repo, fake_ai_provider, resumo_repo)
+
+    assert fake_ai_provider.resumir_historico_aluno_calls == []
+    salvo = resumo_repo.get_by_user("user-1")
+    assert salvo.resumo == "Resumo antigo."
+    assert salvo.mensagens_resumidas == {str(conversa.id): 4}  # still pending for next turn
+
+
+def test_o_bloqueio_do_resumo_e_solto_ao_fim_da_atualizacao(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=10)
+    conversa_repo.add(conversa)
+    resumo_repo = InMemoryResumoAlunoRepository()
+
+    _enviar(conversa, conversa_repo, fake_ai_provider, resumo_repo)
+
+    assert resumo_repo.rollbacks >= 1  # ends the transaction that holds the lock
+
+
+def test_muitas_mensagens_pendentes_sao_resumidas_das_mais_antigas_para_as_novas(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=100)  # + the 2 of this turn = 102
+    conversa_repo.add(conversa)
+    resumo_repo = InMemoryResumoAlunoRepository()
+
+    _enviar(conversa, conversa_repo, fake_ai_provider, resumo_repo)
+
+    chamadas = fake_ai_provider.resumir_historico_aluno_calls
+    assert [len(enviadas) for _, enviadas in chamadas] == [40, 40, 22]
+    assert chamadas[0][1][0].conteudo == "mensagem 0"  # the oldest goes first, none skipped
+    assert chamadas[1][0] == "Resumo do aluno (1)"  # each batch extends the previous summary
+    assert resumo_repo.get_by_user("user-1").mensagens_resumidas == {str(conversa.id): 102}
+
+
+def test_so_as_mensagens_realmente_resumidas_contam_como_resumidas(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=128)  # 130 with this turn: 3 batches cover 120
+    conversa_repo.add(conversa)
+    resumo_repo = InMemoryResumoAlunoRepository()
+
+    _enviar(conversa, conversa_repo, fake_ai_provider, resumo_repo)
+
+    assert len(fake_ai_provider.resumir_historico_aluno_calls) == 3
+    # the last 10 were not summarized, so they must not be marked as such
+    assert resumo_repo.get_by_user("user-1").mensagens_resumidas == {str(conversa.id): 120}
+
+
+def test_falha_no_meio_guarda_o_que_ja_foi_resumido_e_deixa_o_resto_pendente(fake_ai_provider):
+    conversa_repo = InMemoryConversaRepository()
+    conversa = _conversa(n_mensagens=100)
+    conversa_repo.add(conversa)
+    resumo_repo = InMemoryResumoAlunoRepository()
+    fake_ai_provider.falhar_resumir_historico_aluno_a_partir_de = 2
+
+    resposta = _enviar(conversa, conversa_repo, fake_ai_provider, resumo_repo)
+
+    assert resposta
+    salvo = resumo_repo.get_by_user("user-1")
+    assert salvo.resumo == "Resumo do aluno (1)"
+    assert salvo.mensagens_resumidas == {str(conversa.id): 40}

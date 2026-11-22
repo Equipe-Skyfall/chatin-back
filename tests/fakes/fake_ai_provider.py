@@ -49,6 +49,8 @@ class FakeAIProvider(AIProvider):
         self.resumos_aluno_recebidos: list[str | None] = []
         self.resumir_historico_aluno_calls: list[tuple[str | None, list[MensagemAgente]]] = []
         self.falhar_resumir_historico_aluno = False
+        # Fail only from the Nth `resumir_historico_aluno` call on (1-based).
+        self.falhar_resumir_historico_aluno_a_partir_de: int | None = None
         self.conteudos_modulo_recebidos: list[str | None] = []
         self.historicos_recebidos: list[list[MensagemAgente]] = []
         self.falhar_conversar_com_agente_aluno = False
@@ -223,7 +225,10 @@ class FakeAIProvider(AIProvider):
         self, resumo_anterior: str | None, mensagens: list[MensagemAgente]
     ) -> str:
         self.resumir_historico_aluno_calls.append((resumo_anterior, list(mensagens)))
-        if self.falhar_resumir_historico_aluno:
+        a_partir_de = self.falhar_resumir_historico_aluno_a_partir_de
+        if self.falhar_resumir_historico_aluno or (
+            a_partir_de is not None and len(self.resumir_historico_aluno_calls) >= a_partir_de
+        ):
             raise ProvedorIAIndisponivelException("falha simulada ao resumir o histórico")
         return f"Resumo do aluno ({len(self.resumir_historico_aluno_calls)})"
 

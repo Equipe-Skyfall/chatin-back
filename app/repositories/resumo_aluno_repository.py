@@ -2,7 +2,7 @@ import logging
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import ProgrammingError
 
@@ -35,6 +35,14 @@ class ResumoAlunoRepository(SqlAlchemyRepository[ResumoAluno]):
         if getattr(exc.orig, "sqlstate", None) != _UNDEFINED_TABLE:
             raise exc
         logger.error("tabela resumos_aluno ausente (migration 0021 pendente); sem resumo")
+
+    def tentar_bloquear(self, user_id: str) -> bool:
+        """Takes the student's summary lock until the transaction ends (commit or
+        rollback); `False` when another refresh for the same student holds it.
+        A transaction-level advisory lock, so it is also safe behind a
+        transaction-mode connection pooler."""
+        chave = func.hashtextextended(f"resumo_aluno:{user_id}", 0)
+        return bool(self.db.execute(select(func.pg_try_advisory_xact_lock(chave))).scalar())
 
     def salvar(self, user_id: str, resumo: str, mensagens_resumidas: dict[str, int]) -> None:
         """Insert or replace the student's summary in one statement, so two

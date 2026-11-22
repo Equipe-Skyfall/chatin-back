@@ -536,6 +536,15 @@ class InMemoryResumoAlunoRepository:
     def __init__(self):
         self.resumos: dict[str, ResumoAluno] = {}
         self.commits = 0
+        self.rollbacks = 0
+        # Students whose refresh is "running elsewhere" (the lock is taken).
+        self.bloqueados: set[str] = set()
+
+    def tentar_bloquear(self, user_id: str) -> bool:
+        return user_id not in self.bloqueados
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
 
     def get_by_user(self, user_id: str) -> ResumoAluno | None:
         return self.resumos.get(user_id)

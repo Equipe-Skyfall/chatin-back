@@ -32,6 +32,8 @@ _FALHAS_QUE_INDICAM_IA_FORA = {TipoFalhaIA.LIMITE, TipoFalhaIA.INDISPONIVEL, Tip
 # Most messages sent to the model in one summary refresh - bounds the prompt when
 # a conversation grew a lot (or earlier refreshes kept failing) before this one.
 _MAX_MENSAGENS_POR_ATUALIZACAO = 40
+# Batches folded in one refresh: bounds the AI calls a long backlog can trigger.
+_MAX_LOTES_POR_ATUALIZACAO = 3
 
 
 def _mensagem_para_historico(mensagem: Mensagem) -> MensagemAgente:
@@ -160,34 +162,70 @@ def atualizar_resumo_aluno(
 ) -> bool:
     """Folds the messages of `conversa_id` that the student's summary doesn't
     cover yet into it - only once there are `resumo_a_cada` of them - and
-    stores the result. Returns whether the summary was updated. A provider
-    failure keeps the previous summary (RNF6): the progress isn't advanced, so
-    the next turn retries with the same messages plus the new ones."""
+    stores the result. Returns whether the summary was updated.
+
+    Two guarantees: (1) one refresh per student at a time - the summary is read,
+    extended by the model and written back, so two refreshes racing each other
+    would overwrite one another; the loser just gives up and its messages wait
+    for the next turn; (2) a message is only marked as summarized once the
+    model has actually seen it - a long backlog is folded in oldest-first
+    batches instead of silently skipping the older part.
+
+    A provider failure keeps what was stored (RNF6): the progress isn't
+    advanced past what was summarized, so the next turn retries the rest."""
+    try:
+        if not resumo_repo.tentar_bloquear(user_id):
+            return False
+        return _atualizar_resumo_com_bloqueio(
+            user_id, conversa_id, conversa_repo, resumo_repo, ai_provider, resumo_a_cada
+        )
+    finally:
+        # Ends the transaction that holds the lock (a no-op once committed).
+        resumo_repo.rollback()
+
+
+def _atualizar_resumo_com_bloqueio(
+    user_id: str,
+    conversa_id: uuid.UUID,
+    conversa_repo: ConversaRepository,
+    resumo_repo: ResumoAlunoRepository,
+    ai_provider: AIProvider,
+    resumo_a_cada: int,
+) -> bool:
     conversa = conversa_repo.get_with_mensagens(conversa_id)
     if conversa is None or conversa.user_id != user_id:
         return False
 
     resumo = resumo_repo.get_by_user(user_id)
+    texto = resumo.resumo if resumo is not None else None
     progresso = dict(resumo.mensagens_resumidas) if resumo is not None else {}
-    novas = conversa.mensagens[progresso.get(str(conversa_id), 0) :]
-    if len(novas) < resumo_a_cada:
-        return False
+    chave = str(conversa_id)
+    atualizado = False
 
-    try:
-        texto = ai_provider.resumir_historico_aluno(
-            resumo.resumo if resumo is not None else None,
-            [_mensagem_para_historico(m) for m in novas[-_MAX_MENSAGENS_POR_ATUALIZACAO:]],
-        )
-    except ProvedorIAIndisponivelException:
-        logger.warning(
-            "Falha ao atualizar o resumo do aluno %s; mantendo o anterior.", user_id, exc_info=True
-        )
-        return False
+    for _ in range(_MAX_LOTES_POR_ATUALIZACAO):
+        inicio = progresso.get(chave, 0)
+        pendentes = conversa.mensagens[inicio:]
+        if len(pendentes) < resumo_a_cada:
+            break
+        lote = pendentes[:_MAX_MENSAGENS_POR_ATUALIZACAO]
+        try:
+            texto = ai_provider.resumir_historico_aluno(
+                texto, [_mensagem_para_historico(m) for m in lote]
+            )
+        except ProvedorIAIndisponivelException:
+            logger.warning(
+                "Falha ao atualizar o resumo do aluno %s; mantendo o anterior.",
+                user_id,
+                exc_info=True,
+            )
+            break
+        progresso[chave] = inicio + len(lote)
+        atualizado = True
 
-    progresso[str(conversa_id)] = len(conversa.mensagens)
-    resumo_repo.salvar(user_id, texto, progresso)
-    resumo_repo.commit()
-    return True
+    if atualizado:
+        resumo_repo.salvar(user_id, texto, progresso)
+        resumo_repo.commit()
+    return atualizado
 
 
 def atualizar_resumo_aluno_em_background(
