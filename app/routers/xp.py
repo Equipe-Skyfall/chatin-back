@@ -41,13 +41,17 @@ def _montar_ranking(
     user_id: str,
     perfil_repo: PerfilRepo,
 ) -> RankingOut:
-    # `nome` carries the apelido the student chose - never their real name.
-    apelidos = perfil_repo.apelidos_por_ids([uid for uid, _ in entradas])
+    # `nome` carries the apelido the student chose, else their username.
+    ids = [uid for uid, _ in entradas]
+    apelidos = perfil_repo.apelidos_por_ids(ids)
+    usernames = perfil_repo.nomes_por_ids(ids)
     return RankingOut(
         entradas=[
             RankingEntradaOut(
                 posicao=i + 1,
-                nome=ranking_service.apelido_de_exibicao(uid, apelidos.get(uid)),
+                nome=ranking_service.apelido_de_exibicao(
+                    uid, apelidos.get(uid), usernames.get(uid)
+                ),
                 xp=xp,
                 voce=uid == user_id,
             )

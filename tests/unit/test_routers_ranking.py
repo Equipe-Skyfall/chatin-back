@@ -16,9 +16,16 @@ from tests.fakes.in_memory_repositories import InMemoryStreakRepository, InMemor
 NOMES = {"u1": "Ana Souza", "u2": "Bruno Lima", "u3": "Carla Dias", "u4": "Davi Rocha"}
 
 
+# What `perfis_usuario.nome` holds: the username from the registration.
+USERNAMES = {"u1": "ana.souza", "u5": "davi.rocha", "u6": "eva.lima"}
+
+
 class _PerfilRepo:
     def apelidos_por_ids(self, ids):
         return {uid: NOMES[uid] for uid in ids if uid in NOMES}
+
+    def nomes_por_ids(self, ids):
+        return {uid: USERNAMES[uid] for uid in ids if uid in USERNAMES}
 
 
 class _MateriaRepo:
@@ -127,6 +134,31 @@ def test_aluno_sem_xp_nao_tem_posicao(api):
 
     assert corpo["minha_posicao"] is None
     assert corpo["meu_xp"] == 0
+
+
+def test_sem_apelido_o_ranking_mostra_o_username_do_cadastro(api):
+    _dar_xp(api.estado, "u5", 100)  # no apelido, has a username
+
+    corpo = api.client.get("/ranking").json()
+
+    assert corpo["entradas"][0]["nome"] == "davi.rocha"
+
+
+def test_com_apelido_o_ranking_mostra_o_apelido_e_nao_o_username(api):
+    _dar_xp(api.estado, "u1", 100)  # has both: "Ana Souza" (apelido) and "ana.souza"
+
+    corpo = api.client.get("/ranking").json()
+
+    assert corpo["entradas"][0]["nome"] == "Ana Souza"
+    assert "ana.souza" not in api.client.get("/ranking").text
+
+
+def test_username_tambem_vale_no_ranking_por_materia(api):
+    _dar_xp(api.estado, "u6", 100)
+
+    corpo = api.client.get(f"/ranking/materias/{api.estado.materia_id}").json()
+
+    assert corpo["entradas"][0]["nome"] == "eva.lima"
 
 
 def test_aluno_sem_apelido_aparece_com_nome_neutro(api):

@@ -64,6 +64,9 @@ class _PerfilRepo:
     def apelidos_por_ids(self, ids):
         return {"outro": "Ana", USER: "Eu"}
 
+    def nomes_por_ids(self, ids):
+        return {}
+
 
 @pytest.fixture
 def api(monkeypatch):

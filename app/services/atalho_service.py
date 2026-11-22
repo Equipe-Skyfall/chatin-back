@@ -61,9 +61,15 @@ def _ranking(ctx: FerramentaContexto, perfil_repo: PerfilRepository) -> str:
     entradas = ctx.xp_repo.ranking_global(LIMITE_DA_POSICAO)
     if not entradas:
         return "Ainda ninguém tem XP no ranking."
-    apelidos = perfil_repo.apelidos_por_ids([uid for uid, _ in entradas[:TAMANHO_DO_TOPO]])
+    ids = [uid for uid, _ in entradas[:TAMANHO_DO_TOPO]]
+    apelidos = perfil_repo.apelidos_por_ids(ids)
+    usernames = perfil_repo.nomes_por_ids(ids)
+    nomes = {
+        uid: ranking_service.apelido_de_exibicao(uid, apelidos.get(uid), usernames.get(uid))
+        for uid in ids
+    }
     linhas = [
-        f"{posicao}. {ranking_service.apelido_de_exibicao(uid, apelidos.get(uid))} - {xp} XP"
+        f"{posicao}. {nomes[uid]} - {xp} XP"
         for posicao, (uid, xp) in enumerate(entradas[:TAMANHO_DO_TOPO], start=1)
     ]
     minha = next(
