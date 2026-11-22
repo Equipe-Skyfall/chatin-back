@@ -34,6 +34,7 @@ from app.repositories.streak_repository import StreakRepo
 from app.repositories.tema_repository import TemaRepo
 from app.repositories.tentativa_repository import TentativaRepo
 from app.repositories.trilha_estudando_repository import TrilhaEstudandoRepo
+from app.repositories.usuario_dados_repository import UsuarioDadosRepo
 from app.repositories.voto_repository import VotoRepo
 from app.repositories.xp_repository import XpRepo
 
@@ -51,6 +52,7 @@ __all__ = [
     "LicaoRepo",
     "ProgressoRepo",
     "ConversaRepo",
+    "UsuarioDadosRepo",
     "XpRepo",
     "PerfilRepo",
     "ResumoAberturaRepo",
