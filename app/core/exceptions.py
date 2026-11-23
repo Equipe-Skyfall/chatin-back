@@ -81,6 +81,25 @@ class ResumoEstudoNaoEncontradoException(RecursoNaoEncontradoException):
 # --- 400s / 422s (bad request / invalid state) ---
 
 
+class UsuarioSemDadosException(RecursoNaoEncontradoException):
+    code = "usuario_sem_dados"
+
+    def __init__(self, user_id: str):
+        super().__init__(f"Não há dados do usuário {user_id} neste serviço.")
+
+
+class AutoExclusaoNaoPermitidaException(AppException):
+    status_code = 409
+    detail = "Um administrador não pode apagar os próprios dados."
+    code = "auto_exclusao"
+
+
+class ApelidoEmUsoException(AppException):
+    status_code = 409
+    detail = "Este apelido já está em uso. Escolha outro."
+    code = "apelido_em_uso"
+
+
 class TemaNaoProntoException(AppException):
     status_code = 400
     detail = "O tema ainda não está pronto (fontes não encontradas)."

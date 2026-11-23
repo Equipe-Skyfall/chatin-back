@@ -267,6 +267,12 @@ Documentação interativa: `GET /docs` e `GET /openapi.json`. **Auth:** *Autenti
 | Chat do aluno | `POST`/`GET /chat`, `GET /chat/{id}`, `GET /chat/resumos` | Autenticado (dono) |
 | Chat admin | `POST`/`GET /admin/chat`, `GET /admin/chat/{id}` | Admin |
 | Resumos | `POST`/`GET /resumos`, `GET /resumos/{id}`, `GET /resumos/{id}/pdf` | Autenticado (dono) |
+| XP e ranking | `GET /xp/meu`, `GET /ranking`, `GET /ranking/materias/{materia_id}` (`limit` 1–100) | Autenticado |
+| Perfil | `GET`/`PATCH /perfil/apelido` | Autenticado |
+| Recomendação | `GET /recomendacao` | Autenticado |
+| Trilhas | `GET /trilhas/cota`, `POST /trilhas/verificar`, `GET /trilhas/explorar`, `GET /trilhas/{materia_id}`, `POST`/`DELETE /trilhas/{materia_id}/estudar` | Autenticado |
+| IA | `GET /ia/status` (público), `GET /ia/consumo` (`dias`, `granularidade` hora\|dia) | Público / Admin |
+| Gestão de usuários | `DELETE /admin/usuarios/{user_id}` (apaga os dados do usuário; não apaga a conta nem a si mesmo) | Admin |
 
 ### Resumos de estudo + Biblioteca
 

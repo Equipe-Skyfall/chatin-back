@@ -122,6 +122,7 @@ def montar_progresso(
     progresso_rows: list[ProgressoUsuario],
     xp_por_materia: dict[uuid.UUID, int],
     desempenho_por_tema: dict[uuid.UUID, tuple[int, int]] | None = None,
+    acertos_valendo_xp: tuple[int, int] | None = None,
 ) -> ProgressoOut:
     progresso_map = {p.modulo_id: p for p in progresso_rows}
     desempenho_por_tema = desempenho_por_tema or {}
@@ -186,7 +187,19 @@ def montar_progresso(
             )
         )
 
-    return ProgressoOut(materias=materias_out)
+    # `media_acerto` only counts the quizzes that give progress/XP; the per-tema
+    # performance above still counts every answer (practice included).
+    if acertos_valendo_xp is None:
+        acertos_valendo_xp = (
+            sum(c for c, _ in desempenho_por_tema.values()),
+            sum(t for _, t in desempenho_por_tema.values()),
+        )
+    corretas, total = acertos_valendo_xp
+    return ProgressoOut(
+        materias=materias_out,
+        media_acerto=dificuldade_service.taxa_acerto(corretas, total) if total else None,
+        total_respostas=total,
+    )
 
 
 def estado_tema(

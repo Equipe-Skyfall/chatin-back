@@ -55,7 +55,7 @@ from google.adk.tools import google_search
 from google.genai import types as genai_types
 from pydantic import ValidationError
 
-from app.ai import consumo, resiliencia
+from app.ai import consumo, janela_contexto, resiliencia
 from app.ai.adk_schemas import PlanoModulosSchema, QuestionarioSchema, ResumoEstudoSchema
 from app.ai.adk_tools import construir_tools, construir_tools_aluno
 from app.ai.base import AIProvider
@@ -440,6 +440,9 @@ class AdkProvider(AIProvider):
             instruction=AGENTE_ADMIN_SYSTEM_INSTRUCTION,
             tools=construir_tools(ctx),
             generate_content_config=self._config_http,
+            before_model_callback=janela_contexto.criar_callback(
+                self._settings.MEMORIA_JANELA_MENSAGENS
+            ),
         )
         return self._executar_agente(mensagens, ctx.conversa_id, agente)
 
@@ -448,16 +451,25 @@ class AdkProvider(AIProvider):
         mensagens: list[MensagemAgente],
         conteudo_modulo: str | None,
         ctx: FerramentaContexto,
+        resumo_aluno: str | None = None,
     ) -> str:
         """Same as `conversar_com_ferramentas`, the student agent's much
         smaller tool set (`adk_tools.construir_tools_aluno`) and system
-        instruction - see `_executar_agente`."""
+        instruction - see `_executar_agente`. The session replays the whole
+        history, so the window is applied to what goes to the model (see
+        `janela_contexto`); a shorter one once the summary covers the rest."""
+        janela = (
+            self._settings.MEMORIA_JANELA_COM_RESUMO
+            if resumo_aluno
+            else self._settings.MEMORIA_JANELA_MENSAGENS
+        )
         agente = LlmAgent(
             name=_AGENTE_ALUNO_NOME,
             model=self._settings.GEMINI_MODEL_AGENTE,
-            instruction=prompt_agente_aluno_system(conteudo_modulo),
+            instruction=prompt_agente_aluno_system(conteudo_modulo, resumo_aluno),
             tools=construir_tools_aluno(ctx),
             generate_content_config=self._config_http,
+            before_model_callback=janela_contexto.criar_callback(janela),
         )
         return self._executar_agente(mensagens, ctx.conversa_id, agente)
 
@@ -616,6 +628,11 @@ class AdkProvider(AIProvider):
 
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:
         return self._gemini.resumir_conversa(mensagens)
+
+    def resumir_historico_aluno(
+        self, resumo_anterior: str | None, mensagens: list[MensagemAgente]
+    ) -> str:
+        return self._gemini.resumir_historico_aluno(resumo_anterior, mensagens)
 
     def gerar_feedback_erros(self, erros: list[ErroQuestao]) -> str:
         return self._gemini.gerar_feedback_erros(erros)

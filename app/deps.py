@@ -18,7 +18,7 @@ from app.ai.base import AIProvider
 from app.ai.gemini_provider import GeminiProvider
 from app.config import Settings, get_settings
 from app.core.exceptions import NaoAutenticadoException
-from app.core.security import TokenPayload, decode_token, require_admin_role
+from app.core.security import ADMIN_ROLE, TokenPayload, decode_token, require_admin_role
 from app.repositories.conversa_repository import ConversaRepo
 from app.repositories.ia_consumo_repository import IaConsumoRepo
 from app.repositories.licao_repository import LicaoRepo
@@ -27,10 +27,14 @@ from app.repositories.modulo_repository import ModuloRepo
 from app.repositories.perfil_repository import PerfilRepo
 from app.repositories.progresso_repository import ProgressoRepo
 from app.repositories.questionario_repository import QuestionarioRepo
+from app.repositories.resumo_abertura_repository import ResumoAberturaRepo
+from app.repositories.resumo_aluno_repository import ResumoAlunoRepo
 from app.repositories.resumo_estudo_repository import ResumoEstudoRepo
+from app.repositories.streak_repository import StreakRepo
 from app.repositories.tema_repository import TemaRepo
 from app.repositories.tentativa_repository import TentativaRepo
 from app.repositories.trilha_estudando_repository import TrilhaEstudandoRepo
+from app.repositories.usuario_dados_repository import UsuarioDadosRepo
 from app.repositories.voto_repository import VotoRepo
 from app.repositories.xp_repository import XpRepo
 
@@ -48,8 +52,12 @@ __all__ = [
     "LicaoRepo",
     "ProgressoRepo",
     "ConversaRepo",
+    "UsuarioDadosRepo",
     "XpRepo",
     "PerfilRepo",
+    "ResumoAberturaRepo",
+    "ResumoAlunoRepo",
+    "StreakRepo",
     "VotoRepo",
     "ResumoEstudoRepo",
     "IaConsumoRepo",
@@ -83,7 +91,9 @@ def _sincronizar_perfil(payload: TokenPayload, perfil_repo: PerfilRepo) -> None:
     `PerfilRepository.upsert` for why this is cheap enough to run on every
     request rather than needing a separate sync job."""
     if payload.username or payload.email:
-        perfil_repo.upsert(payload.user_id, payload.username, payload.email)
+        perfil_repo.upsert(
+            payload.user_id, payload.username, payload.email, payload.role == ADMIN_ROLE
+        )
 
 
 def get_current_user_id(payload: TokenPayloadDep, perfil_repo: PerfilRepo) -> str:

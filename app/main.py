@@ -5,11 +5,13 @@ from app.config import get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging
 from app.routers import (
+    admin_usuarios,
     chat,
     chat_aluno,
     ia,
     materias,
     modulos,
+    perfil,
     recomendacao,
     resumos,
     temas,
@@ -40,10 +42,12 @@ app.include_router(tentativas.router)
 app.include_router(chat.router)
 app.include_router(chat_aluno.router)
 app.include_router(xp.router)
+app.include_router(perfil.router)
 app.include_router(resumos.router)
 app.include_router(ia.router)
 app.include_router(recomendacao.router)
 app.include_router(trilhas.router)
+app.include_router(admin_usuarios.router)
 
 
 @app.get("/healthz")

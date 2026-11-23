@@ -97,6 +97,28 @@ class TentativaRepository(SqlAlchemyRepository[Tentativa]):
         )
         return {row.tema_id: (int(row.corretas), row.total) for row in self.db.execute(stmt)}
 
+    def acertos_valendo_xp(self, user_id: str) -> tuple[int, int]:
+        """(acertos, total de respostas) só das tentativas que valem progresso e
+        XP - questionário de módulo que não é de treino. O quiz personalizado
+        (`pratica`) e a revisão de tema ficam de fora: é a "média de acerto" do
+        aluno, que não pode cair por causa de um treino."""
+        stmt = (
+            select(
+                func.count(),
+                func.coalesce(func.sum(case((RespostaTentativa.correta.is_(True), 1), else_=0)), 0),
+            )
+            .select_from(RespostaTentativa)
+            .join(Tentativa, Tentativa.id == RespostaTentativa.tentativa_id)
+            .where(
+                Tentativa.user_id == user_id,
+                Tentativa.status == STATUS_CONCLUIDA,
+                Tentativa.pratica.is_(False),
+                Tentativa.tema_id.is_(None),
+            )
+        )
+        total, corretas = self.db.execute(stmt).one()
+        return int(corretas), int(total)
+
     def ultimo_estudo_por_modulo(self, user_id: str) -> dict[uuid.UUID, datetime]:
         """When the student last finished a quiz on each módulo (practice quizzes
         count too) - the "how long since they studied it" input of

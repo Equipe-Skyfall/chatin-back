@@ -12,7 +12,9 @@ from app.models.modulo import Modulo
 from app.models.progresso import STATUS_DISPONIVEL, ProgressoUsuario
 from app.models.questao import Questao
 from app.models.questionario import Questionario
+from app.models.resumo_aluno import ResumoAluno
 from app.models.resumo_estudo import ResumoEstudo
+from app.models.streak import StreakUsuario
 from app.models.tentativa import (
     STATUS_EM_ANDAMENTO,
     RespostaTentativa,
@@ -329,6 +331,19 @@ class InMemoryTentativaRepository:
                 resultado[tema_id] = (corretas + int(r.correta), total + 1)
         return resultado
 
+    def acertos_valendo_xp(self, user_id: str) -> tuple[int, int]:
+        """Only module quizzes that are not practice (same filter as the SQL)."""
+        valem = {
+            t.id
+            for t in self.tentativas.values()
+            if t.user_id == user_id
+            and t.status == "concluida"
+            and not t.pratica
+            and t.tema_id is None
+        }
+        respostas = [r for r in self.respostas if r.tentativa_id in valem]
+        return sum(int(r.correta) for r in respostas), len(respostas)
+
     def flush(self) -> None:
         if self.falhar_proximo_flush:
             self.falhar_proximo_flush = False
@@ -420,6 +435,8 @@ class InMemoryTrilhaEstudandoRepository:
 class InMemoryXpRepository:
     def __init__(self):
         self.eventos: list = []
+        # Users flagged `PerfilUsuario.admin`: the SQL leaves them out of rankings.
+        self.admins: set[str] = set()
 
     def add(self, entity) -> None:
         self.eventos.append(entity)
@@ -437,6 +454,35 @@ class InMemoryXpRepository:
             for e in self.eventos
             if e.user_id == user_id and e.materia_id == materia_id
         )
+
+    # Same ordering contract as `XpRepository`: XP desc, ties by user id.
+
+    def _totais(self, materia_id=None) -> list[tuple[str, int]]:
+        totais: dict[str, int] = {}
+        for e in self.eventos:
+            if e.user_id in self.admins:
+                continue
+            if materia_id is None or e.materia_id == materia_id:
+                totais[e.user_id] = totais.get(e.user_id, 0) + e.quantidade
+        return sorted(totais.items(), key=lambda item: (-item[1], item[0]))
+
+    def ranking_global(self, limit: int = 20) -> list[tuple[str, int]]:
+        return self._totais()[:limit]
+
+    def ranking_por_materia(self, materia_id, limit: int = 20) -> list[tuple[str, int]]:
+        return self._totais(materia_id)[:limit]
+
+    def _posicao(self, totais, user_id):
+        for i, (uid, xp) in enumerate(totais):
+            if uid == user_id:
+                return i + 1, xp
+        return None
+
+    def posicao_global(self, user_id: str):
+        return self._posicao(self._totais(), user_id)
+
+    def posicao_por_materia(self, materia_id, user_id: str):
+        return self._posicao(self._totais(materia_id), user_id)
 
 
 class InMemoryResumoEstudoRepository:
@@ -484,3 +530,72 @@ class InMemoryResumoEstudoRepository:
 
     def refresh(self, entity: ResumoEstudo) -> None:
         pass
+
+
+class InMemoryResumoAlunoRepository:
+    def __init__(self):
+        self.resumos: dict[str, ResumoAluno] = {}
+        self.commits = 0
+        self.rollbacks = 0
+        # Students whose refresh is "running elsewhere" (the lock is taken).
+        self.bloqueados: set[str] = set()
+
+    def tentar_bloquear(self, user_id: str) -> bool:
+        return user_id not in self.bloqueados
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+    def get_by_user(self, user_id: str) -> ResumoAluno | None:
+        return self.resumos.get(user_id)
+
+    def salvar(self, user_id: str, resumo: str, mensagens_resumidas: dict[str, int]) -> None:
+        self.resumos[user_id] = ResumoAluno(
+            user_id=user_id, resumo=resumo, mensagens_resumidas=dict(mensagens_resumidas)
+        )
+
+    def commit(self) -> None:
+        self.commits += 1
+
+
+class InMemoryStreakRepository:
+    """Same one-count-per-day contract as `StreakRepository.registrar_dia`."""
+
+    def __init__(self):
+        self.streaks: dict[str, StreakUsuario] = {}
+        self.commits = 0
+        self.rollbacks = 0
+        self.falhar = False
+
+    def get_by_user(self, user_id: str) -> StreakUsuario | None:
+        return self.streaks.get(user_id)
+
+    def registrar_dia(self, user_id: str, hoje) -> int | None:
+        if self.falhar:
+            raise RuntimeError("falha simulada no banco")
+        atual = self.streaks.get(user_id)
+        if atual is not None and atual.ultimo_dia >= hoje:
+            return None
+        continua = atual is not None and (hoje - atual.ultimo_dia).days == 1
+        sequencia = atual.sequencia + 1 if continua else 1
+        self.streaks[user_id] = StreakUsuario(user_id=user_id, sequencia=sequencia, ultimo_dia=hoje)
+        return sequencia
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+class InMemoryResumoAberturaRepository:
+    """Same contract as `ResumoAberturaRepository`: one row per opening."""
+
+    def __init__(self):
+        self.aberturas: list[tuple[str, uuid.UUID]] = []
+
+    def registrar(self, user_id: str, resumo_id: uuid.UUID) -> None:
+        self.aberturas.append((user_id, resumo_id))
+
+    def total_por_usuario(self, user_id: str) -> int:
+        return sum(1 for uid, _ in self.aberturas if uid == user_id)

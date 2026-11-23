@@ -15,14 +15,13 @@ from app.models import *  # noqa: F401,F403 - registers every model on Base.meta
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
-pytestmark = pytest.mark.skipif(
-    not TEST_DATABASE_URL,
-    reason="TEST_DATABASE_URL not set - integration tests need a real Postgres schema",
-)
-
 
 @pytest.fixture(scope="session")
 def engine():
+    # A `pytestmark` in a conftest does not reach the test modules, so the skip
+    # lives here: every integration test goes through this fixture.
+    if not TEST_DATABASE_URL:
+        pytest.skip("TEST_DATABASE_URL not set - integration tests need a real Postgres schema")
     eng = create_engine(TEST_DATABASE_URL)
     with eng.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))

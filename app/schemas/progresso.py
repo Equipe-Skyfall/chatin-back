@@ -45,4 +45,14 @@ class ProgressoMateriaOut(BaseModel):
 
 
 class ProgressoOut(BaseModel):
+    """`media_acerto` is the hit rate (0-100) over the answers in the student's
+    completed quizzes that count for progress and XP - practice quizzes (the
+    personalized one, the tema review) are left out. `None` while they have
+    answered nothing there."""
+
     materias: list[ProgressoMateriaOut]
+    media_acerto: float | None = None
+    total_respostas: int = 0
+    # Times the student opened a study summary in the Biblioteca (US18): a
+    # reopen counts again, a PDF download does not.
+    resumos_revisados: int = 0

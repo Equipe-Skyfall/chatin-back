@@ -193,6 +193,7 @@ def test_buscar_fontes_sem_grounding_usa_fallback(provider):
     "metodo,args",
     [
         ("resumir_conversa", ([],)),
+        ("resumir_historico_aluno", (None, [])),
     ],
 )
 def test_metodos_nao_migrados_delegam_para_gemini_provider(provider, metodo, args):

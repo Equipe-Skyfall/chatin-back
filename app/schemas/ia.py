@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -14,6 +16,18 @@ class IAStatusOut(BaseModel):
 class ConsumoItemOut(BaseModel):
     # `operacao` for the per-operation breakdown, `user_id` for the per-user one.
     chave: str
+    # Human-readable name for `chave` when there is one (the student's name in
+    # the per-user breakdown); `None` otherwise.
+    rotulo: str | None = None
+    chamadas: int
+    falhas: int
+    tokens_entrada: int
+    tokens_saida: int
+
+
+class ConsumoPeriodoOut(BaseModel):
+    # Start of the hour or day, in Brazilian local time (no offset).
+    inicio: datetime
     chamadas: int
     falhas: int
     tokens_entrada: int
@@ -31,3 +45,5 @@ class IAConsumoOut(BaseModel):
     tokens_saida: int
     por_operacao: list[ConsumoItemOut]
     por_usuario: list[ConsumoItemOut]
+    # Oldest first; hours or days with no calls are left out. Use it to spot peaks.
+    por_periodo: list[ConsumoPeriodoOut]

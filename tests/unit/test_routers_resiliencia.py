@@ -19,6 +19,8 @@ from tests.fakes.fake_ai_provider import FakeAIProvider
 from tests.fakes.in_memory_repositories import (
     InMemoryProgressoRepository,
     InMemoryQuestionarioRepository,
+    InMemoryResumoAberturaRepository,
+    InMemoryStreakRepository,
     InMemoryTentativaRepository,
     InMemoryXpRepository,
 )
@@ -61,6 +63,8 @@ def api(monkeypatch):
     from app.repositories.modulo_repository import get_modulo_repository
     from app.repositories.progresso_repository import get_progresso_repository
     from app.repositories.questionario_repository import get_questionario_repository
+    from app.repositories.resumo_abertura_repository import get_resumo_abertura_repository
+    from app.repositories.streak_repository import get_streak_repository
     from app.repositories.tema_repository import get_tema_repository
     from app.repositories.tentativa_repository import get_tentativa_repository
     from app.repositories.xp_repository import get_xp_repository
@@ -70,6 +74,8 @@ def api(monkeypatch):
         questionario=InMemoryQuestionarioRepository(),
         progresso=InMemoryProgressoRepository(),
         xp=InMemoryXpRepository(),
+        streak=InMemoryStreakRepository(),
+        aberturas=InMemoryResumoAberturaRepository(),
         modulo=_Get(),
         tema=_Get(),
     )
@@ -80,6 +86,8 @@ def api(monkeypatch):
         get_questionario_repository: lambda: repos.questionario,
         get_progresso_repository: lambda: repos.progresso,
         get_xp_repository: lambda: repos.xp,
+        get_streak_repository: lambda: repos.streak,
+        get_resumo_abertura_repository: lambda: repos.aberturas,
         get_materia_repository: lambda: _MateriaRepo(),
         get_modulo_repository: lambda: repos.modulo,
         get_tema_repository: lambda: repos.tema,
@@ -93,7 +101,7 @@ def api(monkeypatch):
         get_settings.cache_clear()
 
 
-def _abrir_tentativa_de_modulo(repos, num_questoes=4):
+def _abrir_tentativa_de_modulo(repos, num_questoes=4, pratica=False):
     """An open, graded (non-practice) attempt on a módulo, so the route tries
     to generate AI feedback. Gabarito of every question is "A"."""
     tema = Tema(id=uuid.uuid4(), materia_id=uuid.uuid4(), titulo="Funções", ordem=0)
@@ -114,7 +122,7 @@ def _abrir_tentativa_de_modulo(repos, num_questoes=4):
         questionario_id=questionario.id,
         status=STATUS_EM_ANDAMENTO,
         total_questoes=num_questoes,
-        pratica=False,
+        pratica=pratica,
     )
     tentativa.questionario = questionario
     repos.tentativa.add(tentativa)
@@ -172,3 +180,33 @@ def test_progresso_e_status_da_ia_respondem_com_a_ia_fora_do_ar(api):
     assert api.client.get("/progresso").status_code == 200
     assert api.client.get("/healthz").status_code == 200
     assert api.client.get("/ia/status").status_code == 200
+
+
+def test_concluir_um_questionario_conta_o_dia_do_streak(api):
+    assert api.repos.streak.get_by_user(USER) is None
+
+    tentativa, questoes = _abrir_tentativa_de_modulo(api.repos)
+    api.client.post(f"/tentativas/{tentativa.id}/responder", json=_corpo(questoes, "AAAA"))
+
+    assert api.repos.streak.get_by_user(USER).sequencia == 1
+
+
+def test_questionario_de_treino_tambem_conta_como_dia_de_estudo(api):
+    tentativa, questoes = _abrir_tentativa_de_modulo(api.repos, pratica=True)
+    api.client.post(f"/tentativas/{tentativa.id}/responder", json=_corpo(questoes, "AAAA"))
+
+    assert api.repos.streak.get_by_user(USER).sequencia == 1
+
+
+def test_media_de_acerto_ignora_o_questionario_de_treino(api):
+    # 2 of 4 right on the real quiz, then a practice one answered all wrong:
+    # the practice must not drag the average (50) down.
+    real, q_real = _abrir_tentativa_de_modulo(api.repos)
+    api.client.post(f"/tentativas/{real.id}/responder", json=_corpo(q_real, "AABB"))
+    treino, q_treino = _abrir_tentativa_de_modulo(api.repos, pratica=True)
+    api.client.post(f"/tentativas/{treino.id}/responder", json=_corpo(q_treino, "BBBB"))
+
+    corpo = api.client.get("/progresso").json()
+
+    assert corpo["media_acerto"] == 50.0
+    assert corpo["total_respostas"] == 4

@@ -92,6 +92,7 @@ class AIProvider(ABC):
         mensagens: list[MensagemAgente],
         conteudo_modulo: str | None,
         ctx: FerramentaContexto,
+        resumo_aluno: str | None = None,
     ) -> str:
         """The student agent's tool-calling loop - same shape as
         `conversar_com_ferramentas`, but a much smaller, non-destructive
@@ -122,6 +123,16 @@ class AIProvider(ABC):
         compares clean text. Not abstract - a provider that can't (or fails to)
         just returns the title as typed, and the check carries on (RNF6)."""
         return titulo.strip()
+
+    @abstractmethod
+    def resumir_historico_aluno(
+        self, resumo_anterior: str | None, mensagens: list[MensagemAgente]
+    ) -> str:
+        """Folds `mensagens` (conversation turns the student's running summary
+        doesn't cover yet) into `resumo_anterior` and returns the updated
+        summary. That summary is what the student chat sends the agent as
+        context in place of the full history (`resumo_aluno` of
+        `conversar_com_agente_aluno`)."""
 
     @abstractmethod
     def resumir_conversa(self, mensagens: list[MensagemAgente]) -> str:

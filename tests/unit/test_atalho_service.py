@@ -51,11 +51,15 @@ class _XpRepo:
 
 
 class _PerfilRepo:
-    def __init__(self, nomes=None):
+    def __init__(self, nomes=None, usernames=None):
         self._nomes = nomes or {}
+        self._usernames = usernames or {}
+
+    def apelidos_por_ids(self, ids):
+        return {i: self._nomes[i] for i in ids if i in self._nomes}
 
     def nomes_por_ids(self, ids):
-        return {i: self._nomes[i] for i in ids if i in self._nomes}
+        return {i: self._usernames[i] for i in ids if i in self._usernames}
 
 
 def _ctx(materia_repo=None, xp_repo=None, tentativa_repo=None):
@@ -159,7 +163,7 @@ def test_xp_de_quem_ainda_nao_tem_nivel():
 # --- ranking ---
 
 
-def test_ranking_mostra_o_topo_com_nomes_e_a_posicao_do_aluno():
+def test_ranking_mostra_o_topo_com_apelidos_e_a_posicao_do_aluno():
     ranking = [("a", 900), ("b", 800), (USER, 700), ("d", 600)]
     perfil = _PerfilRepo({"a": "Ana", "b": "Bruno", USER: "Eu"})
 
@@ -170,8 +174,21 @@ def test_ranking_mostra_o_topo_com_nomes_e_a_posicao_do_aluno():
         "1. Ana - 900 XP",
         "2. Bruno - 800 XP",
         "3. Eu - 700 XP",
-        "4. Aluno - 600 XP",  # no name known for this one
+        "4. Aluno D - 600 XP",  # no apelido chosen: neutral name from the id
         "Sua posição: 3º, com 700 XP.",
+    ]
+
+
+def test_ranking_do_chat_mostra_o_username_de_quem_nao_tem_apelido():
+    ranking = [("a", 900), ("b", 800), ("c", 700)]
+    perfil = _PerfilRepo({"a": "Ana"}, {"a": "ana.souza", "b": "bruno.lima"})
+
+    resposta = _atalho("ver o ranking", _ctx(xp_repo=_XpRepo(ranking=ranking)), perfil)
+
+    assert resposta.splitlines()[1:4] == [
+        "1. Ana - 900 XP",  # the apelido wins over the username
+        "2. bruno.lima - 800 XP",  # no apelido: the username
+        "3. Aluno C - 700 XP",  # neither: the neutral name
     ]
 
 
